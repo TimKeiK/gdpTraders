@@ -1,0 +1,2 @@
+/* Sign-up page reuses the shared login/auth styles. */
+@import './LoginPage.css';

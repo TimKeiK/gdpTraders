@@ -1,0 +1,49 @@
+.strategy-table-wrap {
+  overflow-x: auto;
+  padding: 0;
+}
+
+.strategy-table-wrap .data-table {
+  min-width: 860px;
+}
+
+.strategy-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 15px;
+}
+
+.strategy-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(139, 92, 246, 0.12);
+  color: var(--purple);
+  flex-shrink: 0;
+}
+
+.strategy-asset {
+  font-size: 14px;
+  color: var(--gray-600);
+  white-space: nowrap;
+}
+
+.strategy-mechanism {
+  font-size: 13.5px;
+  color: var(--gray-500);
+  line-height: 1.6;
+  max-width: 320px;
+}
+
+.strategy-min {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.strategy-cta-cell {
+  text-align: right;
+}

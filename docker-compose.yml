@@ -1,0 +1,85 @@
+services:
+  # PostgreSQL database (backend.md §6)
+  postgres:
+    image: postgres:16-alpine
+    container_name: gdptraders-postgres
+    environment:
+      POSTGRES_USER: gdptrader
+      POSTGRES_PASSWORD: gdptrader_password
+      POSTGRES_DB: gdptraders
+    ports:
+      - "5433:5432"  # Host 5433 → container 5432 (avoids local PostgreSQL conflict)
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/src/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gdptrader -d gdptraders"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gdptraders-net
+
+  # Adminer - database UI
+  adminer:
+    image: adminer:latest
+    container_name: gdptraders-adminer
+    ports:
+      - "8081:8080"
+    depends_on:
+      - postgres
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+      ADMINER_DESIGN: pepa-linha
+    networks:
+      - gdptraders-net
+
+  # Backend API service
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: gdptraders-backend
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 8000
+      USE_IN_MEMORY_DB: "false"
+      DATABASE_URL: postgres://gdptrader:gdptrader_password@postgres:5432/gdptraders
+      JWT_SECRET: gdptraders_production_secret_change_me
+      JWT_EXPIRES_IN: "1h"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - gdptraders-net
+
+  # Frontend web app
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: gdptraders-frontend
+    restart: always
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - gdptraders-net
+
+volumes:
+  postgres_data:
+
+networks:
+  gdptraders-net:
+    driver: bridge

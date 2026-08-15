@@ -1,0 +1,144 @@
+.about-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 56px;
+  align-items: start;
+}
+
+.about-text {
+  font-size: 16px;
+  color: var(--gray-600);
+  line-height: 1.75;
+  margin-bottom: 20px;
+}
+
+.about-note {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  background: var(--bg-deep);
+  color: rgba(255, 255, 255, 0.75);
+  border: none;
+}
+
+.about-note svg {
+  color: var(--purple);
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.about-note p {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.about-note strong {
+  color: var(--white);
+}
+
+.about-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.about-step {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+}
+
+.about-step-num {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--purple);
+  background: rgba(139, 92, 246, 0.12);
+  border-radius: 8px;
+  padding: 6px 10px;
+  flex-shrink: 0;
+}
+
+.about-step strong {
+  font-size: 15px;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.about-step p {
+  font-size: 13.5px;
+  color: var(--gray-500);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.values-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.value-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: rgba(139, 92, 246, 0.12);
+  color: var(--purple);
+  margin-bottom: 16px;
+}
+
+.value-card h3 {
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+
+.value-card p {
+  font-size: 14.5px;
+  color: var(--gray-500);
+  line-height: 1.65;
+}
+
+.about-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  background: var(--bg-deep);
+  border: none;
+  color: var(--white);
+}
+
+.about-cta h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 20px;
+  margin-bottom: 6px;
+}
+
+.about-cta h3 svg {
+  color: var(--gold);
+}
+
+.about-cta p {
+  font-size: 14.5px;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+@media (max-width: 900px) {
+  .about-grid {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+  .values-grid {
+    grid-template-columns: 1fr;
+  }
+}
