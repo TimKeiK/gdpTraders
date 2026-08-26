@@ -1,38 +1,59 @@
 import { useState } from 'react';
 import {
   ArrowLeft,
-  ArrowRight,
   AlertCircle,
-  Bitcoin,
   CheckCircle,
-  CreditCard,
-  Info,
+  ClipboardCopy,
+  Clock,
+  ExternalLink,
   FileCheck,
-  Lock,
+  Info,
+  Loader,
   ShieldCheck,
   Wallet,
 } from 'lucide-react';
-import { api, authApi, formatCurrency } from '../../api/client';
+import { api, authApi } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import './DashboardPages.css';
+import './DepositPage.css';
 
 const SUPPORTED_ASSETS = [
-  { value: 'USDT', label: 'USDT (Tether)', icon: '₮' },
-  { value: 'BTC', label: 'BTC (Bitcoin)', icon: '₿' },
-  { value: 'ETH', label: 'ETH (Ethereum)', icon: 'Ξ' },
+  {
+    value: 'USDT',
+    label: 'USDT (Tether)',
+    icon: '₮',
+    network: 'Tron (TRC-20)',
+    networkNote:
+      'Send USDT on the TRC-20 network. Sending on another network (e.g. ERC-20, BEP-20) WILL lose your funds.',
+  },
+  {
+    value: 'BTC',
+    label: 'BTC (Bitcoin)',
+    icon: '₿',
+    network: 'Bitcoin Network',
+    networkNote: 'Send BTC on the Bitcoin network. Sending on another network WILL lose your funds.',
+  },
+  {
+    value: 'ETH',
+    label: 'ETH (Ethereum)',
+    icon: 'Ξ',
+    network: 'Ethereum (ERC-20)',
+    networkNote:
+      'Send ETH on the Ethereum network. Sending on another network WILL lose your funds.',
+  },
 ];
+
+// These addresses match backend/src/routes/wallet.ts DEPOSIT_WALLET_ADDRESSES.
+const DEPOSIT_ADDRESSES: Record<string, string> = {
+  USDT: 'TUc2wxZTmfseu42idSDdhKDT35eyUiWwwp',
+  BTC: '0x69276bb6ccd6927ac2623a6b18601ce2d48efda3',
+  ETH: '0x69276bb6ccd6927ac2623a6b18601ce2d48efda3',
+};
 
 export default function DepositPage() {
   const { user, refreshProfile } = useAuth();
-  const [step, setStep] = useState<'form' | 'payment' | 'success'>('form');
-  const [amount, setAmount] = useState('');
+  const [step, setStep] = useState<'select' | 'instructions' | 'sent'>('select');
   const [asset, setAsset] = useState('USDT');
-
-  // Card payment details
-  const [cardName, setCardName] = useState('');
-  const [cardNumber, setCardNumber] = useState('');
-  const [expiryDate, setExpiryDate] = useState('');
-  const [cvc, setCvc] = useState('');
 
   // KYC states
   const [docType, setDocType] = useState('Passport');
@@ -43,8 +64,11 @@ export default function DepositPage() {
   // Deposit states
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [depositAddress, setDepositAddress] = useState('');
+  const [copied, setCopied] = useState(false);
   const [txRef, setTxRef] = useState('');
+
+  const selectedAsset = SUPPORTED_ASSETS.find((a) => a.value === asset) ?? SUPPORTED_ASSETS[0];
+  const address = DEPOSIT_ADDRESSES[asset];
 
   const handleKycSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,58 +88,52 @@ export default function DepositPage() {
     }
   };
 
-  /** Step 1 — choose asset + amount, then proceed to the card payment. */
-  const handleFormSubmit = (e: React.FormEvent) => {
+  /** Step 1 — choose the coin you want to deposit. */
+  const handleSelect = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!amount || Number(amount) < 1) {
-      setError('Please enter a valid deposit amount (minimum $1).');
+    if (!asset) {
+      setError('Please choose a coin to deposit.');
       return;
     }
     setError('');
-    setStep('payment');
+    setStep('instructions');
+  };
+
+  /** Copy the deposit address to the clipboard. */
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
   };
 
   /**
-   * Step 2 — charge the card. Deposits are card-only: once the card is charged,
-   * the purchased asset is delivered to the constant custodial crypto wallet.
+   * Final step — the user has sent their coins. We record a pending deposit
+   * so our team knows to verify the on-chain transfer.
    */
-  const handlePaymentSubmit = async (e: React.FormEvent) => {
+  const handleMarkSent = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!cardName || !cardNumber || !expiryDate || !cvc) {
-      setError('Please enter all card details.');
-      return;
-    }
-
     setLoading(true);
     setError('');
     try {
-      // Create a Stripe Payment Intent (card-only) against the constant wallet.
-      const paymentRes = await api.createCardDeposit(asset, Number(amount));
-      setDepositAddress(paymentRes.depositAddress);
-
-      // NOTE: In production the card is authenticated with Stripe.js / Payment
-      // Element. For this build, the payment is confirmed after a short delay.
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      const confirmRes = await api.confirmCardDeposit(paymentRes.paymentIntentId, asset, Number(amount));
-
-      setTxRef(confirmRes.transaction.id);
-      setStep('success');
+      const res = await api.submitCryptoDeposit(asset);
+      setTxRef(res.transaction.id);
+      setStep('sent');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Deposit failed. Please try again.');
+      setError(err instanceof Error ? err.message : 'Could not record your deposit. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   const reset = () => {
-    setStep('form');
-    setAmount('');
-    setCardName('');
-    setCardNumber('');
-    setExpiryDate('');
-    setCvc('');
+    setStep('select');
+    setAsset('USDT');
     setError('');
-    setDepositAddress('');
+    setCopied(false);
     setTxRef('');
   };
 
@@ -125,11 +143,12 @@ export default function DepositPage() {
     <>
       <h1 className="dash-title">Deposit Funds</h1>
       <p className="dash-last-updated" style={{ marginBottom: 28 }}>
-        Deposits are made by card only. Your purchased {asset} is delivered automatically to our constant custodial crypto wallet.
+        Send the coin of your choice to our secure deposit address. Simply create a MetaMask wallet, buy
+        your coin, and transfer it to the address below — it is credited once the network confirms it.
       </p>
 
       {!isKycApproved ? (
-        /* Step 1: KYC Verification required */
+        /* KYC Verification required */
         <div className="card" style={{ maxWidth: '640px', margin: '0 auto', borderTop: '4px solid var(--purple)' }}>
           <div style={{ textAlign: 'center', marginBottom: 24 }}>
             <div style={{
@@ -147,7 +166,8 @@ export default function DepositPage() {
             </div>
             <h2 className="dash-section-title" style={{ fontSize: '20px', marginBottom: 8 }}>Identity Verification Required</h2>
             <p style={{ fontSize: '14px', color: 'var(--gray-400)', lineHeight: '1.6' }}>
-              To comply with global regulatory standards (KYC/AML), you must complete identity verification before making your first deposit. This process is instant.
+              To comply with global regulatory standards (KYC/AML), you must complete identity
+              verification before making your first deposit. This process is instant.
             </p>
           </div>
 
@@ -196,364 +216,221 @@ export default function DepositPage() {
             </button>
           </form>
         </div>
-      ) : (
-        /* Step 2+: Card deposit flow (KYC is Approved) */
-        <div className="card" style={{ maxWidth: '680px', margin: '0 auto', position: 'relative' }}>
-          {step === 'form' && (
-            <>
-              <div className="deposit-intro" style={{ marginBottom: 24, paddingBottom: 20, borderBottom: '1px solid var(--glass-border)' }}>
-                <div className="deposit-asset-badge" style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: '15px', color: 'var(--white)' }}>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: '38px',
-                    height: '38px',
-                    borderRadius: '10px',
-                    background: 'rgba(245, 197, 24, 0.12)',
-                    color: 'var(--gold)',
-                  }}>
-                    <Bitcoin size={20} />
-                  </div>
-                  <span>Select an asset and the amount you want to buy with your card.</span>
-                </div>
-              </div>
+      ) : step === 'select' ? (
+        /* Step 1: Choose a coin */
+        <div className="card deposit-card">
+          <div className="deposit-step-heading">
+            <span className="deposit-step-number">1</span>
+            <div>
+              <h3>Which coin do you want to deposit?</h3>
+              <p>Choose the coin you'd like to send. You'll get the correct address and network next.</p>
+            </div>
+          </div>
 
-              <form onSubmit={handleFormSubmit} className="deposit-form">
-                <div className="form-group">
-                  <label>Select Deposit Asset</label>
-                  <select
-                    className="form-control"
-                    value={asset}
-                    onChange={(e) => setAsset(e.target.value)}
-                    disabled={loading}
-                    style={{ fontSize: '15px', height: '52px' }}
-                  >
-                    {SUPPORTED_ASSETS.map((a) => (
-                      <option key={a.value} value={a.value}>{a.label}</option>
-                    ))}
-                  </select>
-                </div>
+          <form onSubmit={handleSelect} className="deposit-form">
+            <div className="form-group">
+              <label>Select Deposit Coin</label>
+              <select
+                className="form-control"
+                value={asset}
+                onChange={(e) => setAsset(e.target.value)}
+                disabled={loading}
+                style={{ fontSize: '15px', height: '52px' }}
+              >
+                {SUPPORTED_ASSETS.map((a) => (
+                  <option key={a.value} value={a.value}>
+                    {a.icon}  {a.label} — {a.network}
+                  </option>
+                ))}
+              </select>
+              <p className="form-hint">
+                {selectedAsset.icon} {selectedAsset.label} will be sent via the{' '}
+                <strong>{selectedAsset.network}</strong>.
+              </p>
+            </div>
 
-                <div className="form-group">
-                  <label>Amount to Deposit (USD)</label>
-                  <div className="deposit-amount-row" style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
-                    <span className="deposit-currency-prefix" style={{
-                      position: 'absolute',
-                      left: '20px',
-                      fontSize: '18px',
-                      fontWeight: 6,
-                      color: 'var(--gray-400)',
-                    }}>$</span>
-                    <input
-                      className="form-control"
-                      type="number"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                      placeholder="10,000"
-                      min="1"
-                      step="1"
-                      required
-                      disabled={loading}
-                      style={{ paddingLeft: '38px', paddingRight: '74px', fontSize: '18px', fontWeight: 6, height: '54px' }}
-                    />
-<span className="deposit-asset-tag" style={{
-                      position: 'absolute',
-                      right: '20px',
-                      fontWeight: 7,
-                      fontSize: '14px',
-                      color: 'var(--gold)',
-                      background: 'rgba(245, 197, 24, 0.1)',
-                      padding: '4px 10px',
-                      borderRadius: '6px',
-                    }}>{asset}</span>
-                  </div>
-                </div>
+            {error && (
+              <p className="login-error" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16 }}>
+                <AlertCircle size={14} /> {error}
+              </p>
+            )}
 
-                <div className="deposit-info-box" style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 10,
-                  background: 'rgba(255, 255, 255, 0.02)',
-                  border: '1px solid var(--glass-border)',
-                  borderRadius: '8px',
-                  padding: '14px 16px',
-                  fontSize: '13px',
-                  color: 'var(--gray-400)',
-                  marginBottom: 24,
-                  lineHeight: '1.5',
-                }}>
-                  <CreditCard size={16} style={{ color: 'var(--purple)', flexShrink: 0, marginTop: 1 }} />
-                  <span>
-                    Deposits are <strong>card-only</strong>. Once your card payment succeeds, your {asset} is delivered to our constant custodial crypto wallet and credited to your account automatically.
-                  </span>
-                </div>
+            <button type="submit" className="btn btn-primary deposit-btn" style={{ width: '100%', justifyContent: 'center', padding: '14px', height: '50px' }}>
+              Get Deposit Address <Wallet size={16} />
+            </button>
+          </form>
+        </div>
+      ) : step === 'instructions' ? (
+        /* Step 2: Instructions + address */
+        <div className="card deposit-card">
+          <div className="deposit-step-heading">
+            <span className="deposit-step-number">2</span>
+            <div>
+              <h3>Buy &amp; transfer your {asset}</h3>
+              <p>Follow these simple steps, then send your coins to the address below.</p>
+            </div>
+          </div>
 
-                {error && (
-                  <p className="login-error" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16 }}>
-                    <AlertCircle size={14} /> {error}
-                  </p>
-                )}
-
-                <button type="submit" className="btn btn-primary deposit-btn" style={{ width: '100%', justifyContent: 'center', padding: '14px', height: '50px' }} disabled={loading}>
-                  Continue to Card Payment <ArrowRight size={16} />
-                </button>
-              </form>
-            </>
-          )}
-
-          {step === 'payment' && (
-            <>
-              <div className="deposit-success-header" style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 14,
-                textAlign: 'left',
-                marginBottom: 24,
-                paddingBottom: 20,
-                borderBottom: '1px solid var(--glass-border)',
-              }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: '46px',
-                  height: '46px',
-                  borderRadius: '50%',
-                  background: 'rgba(139, 92, 246, 0.12)',
-                  color: 'var(--purple)',
-                }}>
-                  <CreditCard size={24} />
-                </div>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 7 }}>Complete Card Payment</h3>
-                  <p style={{ fontSize: '13px', color: 'var(--gray-400)', margin: '2px 0 0 0' }}>
-                    You're purchasing {formatCurrency(Number(amount))} worth of {asset} by card.
-                  </p>
-                </div>
-              </div>
-
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                background: 'rgba(255, 255, 255, 0.02)',
-                border: '1px solid var(--glass-border)',
-                borderRadius: '10px',
-                padding: '14px 18px',
-                marginBottom: 22,
-                fontSize: '14px',
-              }}>
-                <span style={{ color: 'var(--gray-400)' }}>Card payment (Stripe)</span>
-                <span style={{ fontWeight: 7 }}>{formatCurrency(Number(amount))}</span>
-              </div>
-
-              <form onSubmit={handlePaymentSubmit} className="deposit-form">
-                <div className="form-group">
-                  <label>Cardholder Name</label>
-                  <input
-                    className="form-control"
-                    type="text"
-                    value={cardName}
-                    onChange={(e) => setCardName(e.target.value)}
-                    placeholder="Name on card"
-                    required
-                    disabled={loading}
-                    style={{ fontSize: '15px' }}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label>Card Number</label>
-                  <input
-                    className="form-control"
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="cc-number"
-                    value={cardNumber}
-                    onChange={(e) => setCardNumber(e.target.value.replace(/[^0-9 ]/g, ''))}
-                    placeholder="4242 4242 4242 4242"
-                    required
-                    disabled={loading}
-                    style={{ fontSize: '15px', fontFamily: 'var(--font-mono)' }}
-                  />
-                </div>
-
-                <div style={{ display: 'flex', gap: 14 }}>
-                  <div className="form-group" style={{ flex: 1 }}>
-                    <label>Expiry</label>
-                    <input
-                      className="form-control"
-                      type="text"
-                      autoComplete="cc-exp"
-                      value={expiryDate}
-                      onChange={(e) => setExpiryDate(e.target.value)}
-                      placeholder="MM / YY"
-                      required
-                      disabled={loading}
-                      style={{ fontSize: '15px', fontFamily: 'var(--font-mono)' }}
-                    />
-                  </div>
-                  <div className="form-group" style={{ flex: 1 }}>
-                    <label>CVC</label>
-                    <input
-                      className="form-control"
-                      type="text"
-                      inputMode="numeric"
-                      autoComplete="cc-csc"
-                      value={cvc}
-                      onChange={(e) => setCvc(e.target.value.replace(/[^0-9]/g, ''))}
-                      placeholder="123"
-                      maxLength={4}
-                      required
-                      disabled={loading}
-                      style={{ fontSize: '15px', fontFamily: 'var(--font-mono)' }}
-                    />
-                  </div>
-                </div>
-<div className="deposit-info-box" style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 10,
-                  background: 'rgba(255, 255, 255, 0.02)',
-                  border: '1px solid var(--glass-border)',
-                  borderRadius: '8px',
-                  padding: '14px 16px',
-                  fontSize: '13px',
-                  color: 'var(--gray-400)',
-                  marginBottom: 20,
-                  lineHeight: '1.5',
-                }}>
-                  <Wallet size={16} style={{ color: 'var(--gold)', flexShrink: 0, marginTop: 1 }} />
-                  <span>
-                    After a successful card payment, your {asset} is delivered to our constant custodial crypto wallet and credited to your account. No manual crypto transfer is needed.
-                  </span>
-                </div>
-
-                {error && (
-                  <p className="login-error" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16 }}>
-                    <AlertCircle size={14} /> {error}
-                  </p>
-                )}
-
-                <button type="submit" className="btn btn-primary deposit-btn" style={{ width: '100%', justifyContent: 'center', padding: '14px', height: '50px' }} disabled={loading}>
-                  {loading ? (
-                    'Processing Payment...'
-                  ) : (
-                    <>
-                      <Lock size={15} /> Pay {formatCurrency(Number(amount))}
-                    </>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  className="btn btn-outline"
-                  onClick={() => setStep('form')}
-                  disabled={loading}
-                  style={{ width: '100%', justifyContent: 'center', marginTop: 10, display: 'flex', alignItems: 'center', gap: 6 }}
-                >
-                  <ArrowLeft size={16} /> Back
-                </button>
-              </form>
-            </>
-          )}
-
-          {step === 'success' && (
-<div className="deposit-address-view" style={{ textAlign: 'center' }}>
-              <div className="deposit-success-header" style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 14,
-                textAlign: 'left',
-                marginBottom: 28,
-                paddingBottom: 20,
-                borderBottom: '1px solid var(--glass-border)',
-              }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: '46px',
-                  height: '46px',
-                  borderRadius: '50%',
-                  background: 'rgba(34, 197, 94, 0.12)',
-                  color: 'var(--green)',
-                }}>
-                  <CheckCircle size={26} />
-                </div>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 7 }}>Deposit Successful</h3>
-                  <p style={{ fontSize: '13px', color: 'var(--gray-400)', margin: '2px 0 0 0' }}>
-                    {formatCurrency(Number(amount))} in {asset} credited to your account and delivered to our custodial wallet.
-                  </p>
-                </div>
-              </div>
-
-              <div className="deposit-address-card" style={{
-                background: 'rgba(255,255,255,0.02)',
-                border: '1.5px dashed var(--glass-border)',
-                borderRadius: '12px',
-                padding: '24px',
-                marginBottom: 24,
-                textAlign: 'left',
-              }}>
-                <div className="deposit-address-label" style={{
-                  fontSize: '13px',
-                  color: 'var(--gray-400)',
-                  fontWeight: 6,
-                  marginBottom: 10,
-                }}>
-                  <Wallet size={14} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />
-                  Delivered to constant custodial {asset} wallet:
-                </div>
-                <div className="deposit-address-value" style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                  background: 'var(--black)',
-                  border: '1px solid var(--glass-border)',
-                  padding: '12px 16px',
-                  borderRadius: '8px',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '14px',
-                  color: 'var(--white)',
-                  wordBreak: 'break-all',
-                }}>
-                  <span style={{ userSelect: 'all' }}>{depositAddress}</span>
-                </div>
-              </div>
-
-              <div className="deposit-info-box" style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 10,
-                background: 'rgba(255, 255, 255, 0.02)',
-                border: '1px solid var(--glass-border)',
-                borderRadius: '8px',
-                padding: '14px 16px',
-                fontSize: '13px',
-                color: 'var(--gray-400)',
-                marginBottom: 28,
-                textAlign: 'left',
-                lineHeight: '1.5',
-              }}>
-                <Info size={16} style={{ color: 'var(--gold)', flexShrink: 0, marginTop: 1 }} />
-                <span>
-                  <strong>Transaction reference:</strong> {txRef}. Your {asset} was purchased by card and delivered automatically — no further action required.
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-                <button className="btn btn-outline" onClick={reset} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <ArrowLeft size={16} /> New Deposit
-                </button>
+          {/* Step-by-step guide */}
+          <div className="deposit-guide">
+            <div className="deposit-guide-step">
+              <span className="deposit-guide-num">A</span>
+              <div>
+                <h4>1. Create a MetaMask wallet</h4>
+                <p>
+                  Visit <a href="https://metamask.io" target="_blank" rel="noreferrer">metamask.io</a>{' '}
+                  and install the browser extension or app. Create a new wallet and safely back up your
+                  secret recovery phrase. Keep it private — never share it with anyone.
+                </p>
               </div>
             </div>
+
+            <div className="deposit-guide-step">
+              <span className="deposit-guide-num">B</span>
+              <div>
+                <h4>2. Buy {asset} coins</h4>
+                <p>
+                  Inside MetaMask, tap <strong>Buy</strong> and choose a payment method to purchase{' '}
+                  {selectedAsset.label}. You can buy from a linked exchange or card provider. Make sure
+                  you're buying <strong>{asset}</strong>, not a different coin.
+                </p>
+              </div>
+            </div>
+
+            <div className="deposit-guide-step">
+              <span className="deposit-guide-num">C</span>
+              <div>
+                <h4>3. Transfer your {asset} to the deposit address</h4>
+                <p>
+                  In MetaMask, tap <strong>Send</strong>, paste the deposit address below, confirm the
+                  network is <strong>{selectedAsset.network}</strong>, enter the amount, and confirm the
+                  transaction.
+                </p>
+              </div>
+            </div>
+          </div>
+
+
+          {/* Deposit address */}
+          <div className="deposit-address-card">
+            <div className="deposit-address-label">
+              <Wallet size={14} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />
+              Deposit address for {asset}
+            </div>
+            <div className="deposit-address-value">
+              <span style={{ userSelect: 'all', wordBreak: 'break-all' }}>{address}</span>
+              <button
+                type="button"
+                className={`deposit-copy-btn${copied ? ' copied' : ''}`}
+                onClick={handleCopy}
+                title="Copy address"
+              >
+                {copied ? <CheckCircle size={16} /> : <ClipboardCopy size={16} />}
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <div className="deposit-address-network">
+              <Info size={14} />
+              Network: <strong>{selectedAsset.network}</strong>
+            </div>
+          </div>
+
+          {/* Network warning */}
+          <div className="deposit-warning">
+            <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>
+              <strong>Important:</strong> {selectedAsset.networkNote} Only send {asset} to this address.
+              Double-check the network before confirming your transfer.
+            </span>
+          </div>
+
+          {error && (
+            <p className="login-error" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16 }}>
+              <AlertCircle size={14} /> {error}
+            </p>
           )}
+
+          <div className="deposit-actions">
+            <button type="button" className="btn btn-outline" onClick={() => setStep('select')} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <ArrowLeft size={16} /> Back
+            </button>
+            <button type="button" className="btn btn-primary" onClick={handleMarkSent} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {loading ? <Loader size={16} className="spin" /> : <CheckCircle size={16} />}
+              {loading ? 'Recording...' : "I've Sent My Coins"}
+            </button>
+          </div>
+
+          <p className="deposit-post-send">
+            After transferring, tap <strong>"I've Sent My Coins"</strong>. We'll verify the transfer on
+            the blockchain and credit your account once it's confirmed (usually within minutes).
+          </p>
+        </div>
+      ) : (
+        /* Step 3: Sent confirmation */
+        <div className="deposit-address-view" style={{ maxWidth: '680px', margin: '0 auto' }}>
+          <div className="card deposit-card">
+            <div className="deposit-success-header" style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 14,
+              textAlign: 'left',
+              marginBottom: 24,
+              paddingBottom: 20,
+              borderBottom: '1px solid var(--glass-border)',
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '46px',
+                height: '46px',
+                borderRadius: '50%',
+                background: 'rgba(34, 197, 94, 0.12)',
+                color: 'var(--green)',
+              }}>
+                <CheckCircle size={26} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>Transfer Submitted</h3>
+                <p style={{ fontSize: '13px', color: 'var(--gray-400)', margin: '2px 0 0 0' }}>
+                  Your {asset} transfer has been recorded. We'll verify it on the blockchain shortly.
+                </p>
+              </div>
+            </div>
+
+            <div className="deposit-info-box" style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 10,
+              background: 'rgba(255, 255, 255, 0.02)',
+              border: '1px solid var(--glass-border)',
+              borderRadius: '8px',
+              padding: '14px 16px',
+              fontSize: '13px',
+              color: 'var(--gray-400)',
+              marginBottom: 20,
+              lineHeight: '1.5',
+            }}>
+              <Clock size={16} style={{ color: 'var(--gold)', flexShrink: 0, marginTop: 1 }} />
+              <span>
+                <strong>What happens next?</strong> Network confirmations usually take a few minutes.
+                Once confirmed, your {asset} is credited to your account and appears in your portfolio.
+                If you have questions, contact support with reference <strong>{txRef}</strong>.
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button className="btn btn-outline" onClick={reset} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <ArrowLeft size={16} /> New Deposit
+              </button>
+              <a className="btn btn-primary" href="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none' }}>
+                <ExternalLink size={16} /> View Portfolio
+              </a>
+            </div>
+          </div>
         </div>
       )}
     </>
   );
 }
+

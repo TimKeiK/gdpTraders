@@ -168,6 +168,14 @@ export const api = {
     return request<{ asset: string; address: string }>(`/wallet/deposit-address/${asset}`);
   },
 
+  /** Records a crypto transfer submitted by the user (manual wallet deposit). */
+  async submitCryptoDeposit(asset: string): Promise<{ transaction: Transaction; message: string }> {
+    return request<{ transaction: Transaction; message: string }>('/wallet/crypto-deposit', {
+      method: 'POST',
+      body: JSON.stringify({ asset }),
+    });
+  },
+
   /** Creates a Stripe payment intent for card deposit. */
   async createCardDeposit(asset: string, amount: number): Promise<{ clientSecret: string; paymentIntentId: string; amount: number; asset: string; depositAddress: string }> {
     return request<{ clientSecret: string; paymentIntentId: string; amount: number; asset: string; depositAddress: string }>('/wallet/deposit', {

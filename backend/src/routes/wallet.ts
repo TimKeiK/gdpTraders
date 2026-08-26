@@ -309,6 +309,57 @@ router.post('/deposit-confirm', requireKycApproved, async (req: AuthenticatedReq
 });
 
 /**
+ * POST /api/wallet/crypto-deposit
+ * Records a crypto deposit submitted by the user via manual wallet transfer.
+ * The user sends the selected asset to the constant custodial deposit wallet
+ * (DEPOSIT_WALLET_ADDRESSES), then notifies us to verify the on-chain transfer.
+ * The deposit is recorded as Processing until confirmed.
+ *
+ * Body: { asset: 'USDT' }
+ */
+router.post('/crypto-deposit', requireKycApproved, async (req: AuthenticatedRequest, res: Response) => {
+  const { asset } = req.body;
+  const userId = req.userId!;
+
+  if (!SUPPORTED_ASSETS.includes(asset)) {
+    res.status(400).json({ error: `Unsupported asset. Supported: ${SUPPORTED_ASSETS.join(', ')}` });
+    return;
+  }
+
+  const depositAddress = DEPOSIT_WALLET_ADDRESSES[asset];
+  if (!depositAddress) {
+    res.status(500).json({ error: 'Deposit wallet not configured for this asset' });
+    return;
+  }
+
+  // Create a pending deposit transaction (on-chain verification is pending).
+  const txId = `TX-${nanoid(12)}`;
+  const tx: Transaction = {
+    id: txId,
+    userId,
+    date: new Date().toISOString(),
+    type: 'Deposit',
+    asset,
+    amount: 0,
+    strategy: 'Pending Allocation',
+    status: 'Processing',
+    txHash: `0x${nanoid(16)}`,
+  };
+  await addTransaction(tx);
+  await addAuditLog(
+    userId,
+    'DEPOSIT_SUBMITTED',
+    `User reported sending ${asset} to custodial wallet ${depositAddress} (${txId})`
+  );
+
+  res.status(201).json({
+    transaction: tx,
+    depositAddress,
+    message: `Deposit recorded. We will verify your ${asset} transfer on the blockchain and credit your account once confirmed.`,
+  });
+});
+
+/**
  * POST /api/wallet/withdraw
  * Creates a withdrawal request requiring multi-sig approval (Admin + Compliance).
  */
