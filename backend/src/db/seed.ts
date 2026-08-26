@@ -84,7 +84,6 @@ export async function seedDatabase(): Promise<void> {
   const walletDefs = [
     { asset: 'BTC', address: 'bc1qdemo7x3k9f2j4m8p5q6r7s8t9u0v1w2x3y', type: 'cold' as const },
     { asset: 'ETH', address: '0x742d35Cc6634C0532925a3b844Bc5e2e3c7e2ab0d', type: 'cold' as const },
-    { asset: 'USDC', address: '0x9f8e7d6c5b4a39281706f5e4d3c2b1a0f9e8d7c6', type: 'warm' as const },
     { asset: 'USDT', address: '0x129e77c2b9f8d4e5a6b7c8d9e0f1a2b3c4d5e6f7', type: 'warm' as const },
     { asset: 'SOL', address: 'DemoSolWallet7k9f2j4m8p5q6r7s8t9u0', type: 'hot' as const },
   ];
@@ -101,7 +100,7 @@ export async function seedDatabase(): Promise<void> {
   }
 
   // Unique deposit addresses per user/asset (backend.md §4.3)
-  const depositAssets = ['BTC', 'ETH', 'USDC', 'USDT', 'SOL'];
+  const depositAssets = ['BTC', 'ETH', 'USDT', 'SOL'];
   for (const asset of depositAssets) {
     await addDepositAddress({
       address: `deposit_${asset}_demo_${Math.random().toString(16).slice(2, 34)}`,
@@ -113,7 +112,7 @@ export async function seedDatabase(): Promise<void> {
   }
 
   // Append-only ledger entries (immutable financial records)
-  await appendLedgerEntry(demoUser.id, 'USDC', 250000, 'deposit', 'TX-98421');
+  await appendLedgerEntry(demoUser.id, 'USDT', 250000, 'deposit', 'TX-98421');
   await appendLedgerEntry(demoUser.id, 'BTC', 120000, 'trade', 'TX-98390');
   await appendLedgerEntry(demoUser.id, 'ETH', 85000, 'trade', 'TX-98377');
   await appendLedgerEntry(demoUser.id, 'USDT', -50000, 'withdrawal', 'TX-98312');
@@ -124,7 +123,7 @@ export async function seedDatabase(): Promise<void> {
 
   // Transactions matching the frontend's mock data
   const txns = [
-    { id: 'TX-98421', date: '2026-08-01 14:32 UTC', type: 'Deposit', asset: 'USDC', amount: 250000, strategy: 'DeFi Treasury', status: 'Completed', txHash: '0x8f3a…c91d' },
+    { id: 'TX-98421', date: '2026-08-01 14:32 UTC', type: 'Deposit', asset: 'USDT', amount: 250000, strategy: 'DeFi Treasury', status: 'Completed', txHash: '0x8f3a…c91d' },
     { id: 'TX-98390', date: '2026-07-29 09:15 UTC', type: 'Trade', asset: 'BTC', amount: 120000, strategy: 'BTC/ETH Core', status: 'Completed', txHash: '0x2b7e…44af' },
     { id: 'TX-98377', date: '2026-07-26 18:03 UTC', type: 'Trade', asset: 'ETH', amount: 85000, strategy: 'BTC/ETH Core', status: 'Completed', txHash: '0x91cc…08b2' },
     { id: 'TX-98312', date: '2026-07-22 11:47 UTC', type: 'Withdrawal', asset: 'USDT', amount: 50000, strategy: 'DeFi Treasury', status: 'Processing', txHash: '0x5e17…d3fa' },
@@ -152,7 +151,7 @@ export async function seedDatabase(): Promise<void> {
   // Audit logs
   await addAuditLog(demoUser.id, 'ACCOUNT_CREATED', 'User registered with email demo@gdptraders.io');
   await addAuditLog(demoUser.id, 'KYC_APPROVED', 'KYC verification passed via provider');
-  await addAuditLog(demoUser.id, 'DEPOSIT', 'USDC 250,000 credited to DeFi Treasury');
+  await addAuditLog(demoUser.id, 'DEPOSIT', 'USDT 250,000 credited to DeFi Treasury');
   await addAuditLog('user_admin_001', 'SECURITY_CHECK', 'Ledger integrity verified - all hashes valid');
 
   console.log('Database seeded successfully.');

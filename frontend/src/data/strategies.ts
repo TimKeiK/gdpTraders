@@ -75,7 +75,7 @@ export const strategies: Strategy[] = [
   {
     id: 'defi-treasury',
     name: 'DeFi Treasury',
-    assetFocus: 'Stablecoins (USDC/USDT)',
+    assetFocus: 'Stablecoins (USDT)',
     volatilityProfile: 'Low',
     volatilityClass: 'low',
     mechanism:

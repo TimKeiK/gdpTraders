@@ -74,7 +74,7 @@ export default function SignUpPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@firm.com"
+              placeholder="name@example.com"
               required
               disabled={loading}
             />
@@ -87,7 +87,7 @@ export default function SignUpPage() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="At least 8 characters"
+              placeholder="password"
               required
               disabled={loading}
             />

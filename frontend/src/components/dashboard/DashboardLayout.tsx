@@ -1,5 +1,5 @@
-import { NavLink, Outlet, Link, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Receipt, ShieldCheck, FileBarChart, MessagesSquare, LogOut, ArrowLeft, User, Plus } from 'lucide-react';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { LayoutDashboard, Receipt, MessagesSquare, LogOut, User, Plus } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import './DashboardLayout.css';
 
@@ -7,8 +7,6 @@ const navItems = [
   { to: '/dashboard', label: 'Overview', icon: LayoutDashboard, end: true },
   { to: '/dashboard/deposit', label: 'Deposit', icon: Plus },
   { to: '/dashboard/transactions', label: 'Transactions', icon: Receipt },
-  { to: '/dashboard/security', label: 'Security', icon: ShieldCheck },
-  { to: '/dashboard/tax', label: 'Tax Reporting', icon: FileBarChart },
   { to: '/dashboard/support', label: 'Support', icon: MessagesSquare },
 ];
 
@@ -31,8 +29,7 @@ export default function DashboardLayout() {
             <User size={20} />
           </div>
           <div className="dash-user-info">
-            <span className="dash-user-name">Welcome, {firstName}</span>
-            <span className="dash-user-email">{user?.email}</span>
+            <span className="dash-user-name">Welcome {firstName}</span>
           </div>
         </div>
 
@@ -51,9 +48,6 @@ export default function DashboardLayout() {
         </nav>
 
         <div className="dash-sidebar-footer">
-          <Link to="/" className="dash-nav-link">
-            <ArrowLeft size={18} /> Back to Site
-          </Link>
           <button className="dash-nav-link" onClick={handleLogout}>
             <LogOut size={18} /> Sign Out
           </button>

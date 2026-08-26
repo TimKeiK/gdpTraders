@@ -34,7 +34,7 @@ export const STRATEGIES: Strategy[] = [
   {
     id: 'defi-treasury',
     name: 'DeFi Treasury',
-    assetFocus: 'Stablecoins (USDC/USDT)',
+    assetFocus: 'Stablecoins (USDT)',
     volatilityProfile: 'Low',
     mechanism:
       'Deploys capital into audited lending protocols (Aave/Compound) and short-term treasuries.',
@@ -55,4 +55,4 @@ export function getStrategyById(id: string): Strategy | undefined {
   return STRATEGIES.find((s) => s.id === id);
 }
 
-export const SUPPORTED_ASSETS = ['BTC', 'ETH', 'USDC', 'USDT', 'SOL'];
+export const SUPPORTED_ASSETS = ['BTC', 'ETH', 'USDT'];

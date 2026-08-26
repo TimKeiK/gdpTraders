@@ -54,7 +54,7 @@
 |:--------------------- |:------------------------------- |:----------------------- |:------------------------------------------------------------------------------------------------------------------------------------ |:-------------------- |
 | **BTC/ETH Core**      | Spot Bitcoin & Ethereum         | Medium-High              | Long-term holding with layered staking yields. Seeks to outperform a passive buy-and-hold via covered call overwriting.              | $10,000              |
 | **Arbitrage Alpha**   | Futures vs. Spot Basis          | Low-Medium                | Captures the price spread between perpetual futures and underlying spot indexes. Uncorrelated to directional market moves.           | $25,000              |
-| **DeFi Treasury**     | Stablecoins (USDC/USDT)         | Low                        | Deploys capital into diversified, audited lending protocols (Aave/Compound) and short-term treasuries. Generates yield from funding rates. | $5,000               |
+| **DeFi Treasury**     | Stablecoins (USDT)             | Low                        | Deploys capital into diversified, audited lending protocols (Aave/Compound) and short-term treasuries. Generates yield from funding rates. | $5,000               |
 | **Active Quant**      | Top-10 Liquid Coins             | High                       | Systematic momentum and mean-reversion algorithms. Positions sized dynamically based on realized volatility (Volatility Targeting).  | $50,000              |
 
 ---

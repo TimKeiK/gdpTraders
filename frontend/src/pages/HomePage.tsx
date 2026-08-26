@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ShieldCheck,
@@ -34,6 +34,41 @@ const dashboardFeatures = [
   { icon: MessagesSquare, title: 'Dedicated Support', text: 'Secure in-app messaging with your dedicated Account Executive — not a bot.' },
   { icon: Users, title: 'Due Diligence', text: 'Full PM bios and track records shared securely under NDA during onboarding.' },
 ];
+
+/**
+ * Stagger utility: inline custom property consumed by the reveal transition.
+ */
+const revealDelay = (ms: number): CSSProperties =>
+  ({ '--reveal-delay': `${ms}ms` }) as CSSProperties;
+
+/**
+ * Adds an `in` class to every `[data-reveal]` element the moment it scrolls
+ * into view, then unobserves it. Falls back to showing everything immediately
+ * when IntersectionObserver is unavailable.
+ */
+function useScrollReveal(deps: unknown[]) {
+  useEffect(() => {
+    const els = Array.from(document.querySelectorAll<HTMLElement>('[data-reveal]'));
+    if (!('IntersectionObserver' in window)) {
+      els.forEach((el) => el.classList.add('in'));
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('in');
+            io.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.12, rootMargin: '0px 0px -48px 0px' },
+    );
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+}
 
 function HeroSection() {
   return (
@@ -72,7 +107,7 @@ function ProofBar() {
     <section className="proof-bar">
       <div className="container proof-bar-inner">
         {proofBarItems.map((item, idx) => (
-          <div className="proof-item" key={idx}>
+          <div className="proof-item" key={idx} data-reveal="up" style={revealDelay(idx * 140)}>
             <item.icon size={18} />
             <span>{item.text}</span>
             {item.text === '24/7 Risk Monitoring' && <span className="proof-dot" aria-hidden />}
@@ -88,7 +123,7 @@ function TrackRecordSection({ perf }: { perf: PerformancePoint[] }) {
     <section className="section">
       <div className="container">
         <div className="track-record">
-          <div className="track-record-head">
+          <div className="track-record-head" data-reveal="up" style={revealDelay(0)}>
             <div>
               <span className="eyebrow">Our Track Record</span>
               <h2 className="section-title">Performance vs. the Bitcoin Benchmark</h2>
@@ -98,7 +133,7 @@ function TrackRecordSection({ perf }: { perf: PerformancePoint[] }) {
                 secure data-room during onboarding.
               </p>
             </div>
-            <div className="track-record-note card">
+            <div className="track-record-note card" data-reveal="right" style={revealDelay(160)}>
               <Scale size={20} />
               <p>
                 <strong>Benchmark:</strong> BTC Index · Performance shown is re-indexed.
@@ -108,7 +143,7 @@ function TrackRecordSection({ perf }: { perf: PerformancePoint[] }) {
           </div>
 
           {perf.length > 0 ? (
-            <div className="chart-card">
+            <div className="chart-card" data-reveal="zoom">
               <TrackRecordChart
                 labels={perf.map((p) => formatDate(p.date))}
                 portfolioData={perf.map((p) => p.portfolio)}
@@ -117,7 +152,7 @@ function TrackRecordSection({ perf }: { perf: PerformancePoint[] }) {
               />
             </div>
           ) : (
-            <div className="card chart-loading">Loading track record…</div>
+            <div className="card chart-loading" data-reveal="zoom">Loading track record…</div>
           )}
         </div>
       </div>
@@ -129,35 +164,37 @@ function StrategiesSection() {
   return (
     <section className="section strategies-section">
       <div className="container">
-        <div className="text-center mb-4">
+        <div className="text-center mb-4" data-reveal="up">
           <span className="eyebrow">Investment Products</span>
           <h2 className="section-title">100% Crypto. Zero Distractions.</h2>
-          <p className="section-subtitle" style={{ margin: '0 auto' }}>
+          <p className="section-subtitle" style={{ margin: '0 auto', textAlign: 'center' }}>
             Four systematically managed strategies focused exclusively on digital assets and
             DeFi yield.
           </p>
         </div>
 
         <div className="grid-2">
-          {strategies.map((s) => (
-            <Link to={`/strategies/${s.id}`} className="card card-hover strategy-card" key={s.id}>
-              <div className="strategy-card-top">
-                <h3 className="strategy-card-name">{s.name}</h3>
-                <span className={`badge badge-${s.volatilityClass}`}>
-                  {s.volatilityProfile} Vol
-                </span>
-              </div>
-              <p className="strategy-card-focus">{s.assetFocus}</p>
-              <p className="strategy-card-mech">{s.mechanism}</p>
-              <div className="strategy-card-footer">
-                <span className="strategy-card-min">
-                  Min. {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(s.minInvestment)}
-                </span>
-                <span className="strategy-card-link">
-                  Details <ArrowRight size={14} />
-                </span>
-              </div>
-            </Link>
+          {strategies.map((s, idx) => (
+            <div key={s.id} className="reveal-grid-cell" data-reveal="up" style={revealDelay(idx * 120)}>
+              <Link to={`/strategies/${s.id}`} className="card card-hover strategy-card">
+                <div className="strategy-card-top">
+                  <h3 className="strategy-card-name">{s.name}</h3>
+                  <span className={`badge badge-${s.volatilityClass}`}>
+                    {s.volatilityProfile} Vol
+                  </span>
+                </div>
+                <p className="strategy-card-focus">{s.assetFocus}</p>
+                <p className="strategy-card-mech">{s.mechanism}</p>
+                <div className="strategy-card-footer">
+                  <span className="strategy-card-min">
+                    Min. {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(s.minInvestment)}
+                  </span>
+                  <span className="strategy-card-link">
+                    Details <ArrowRight size={14} />
+                  </span>
+                </div>
+              </Link>
+            </div>
           ))}
         </div>
       </div>
@@ -170,7 +207,7 @@ function FeesTeaser() {
     <section className="section fees-teaser">
       <div className="container">
         <div className="fees-teaser-inner">
-          <div>
+          <div data-reveal="left">
             <span className="eyebrow">Full Fee Transparency</span>
             <h2 className="section-title" style={{ color: 'var(--white)' }}>
               We Hate Hidden Fees.
@@ -183,7 +220,7 @@ function FeesTeaser() {
               See the Full Fee Schedule <ArrowRight size={16} />
             </Link>
           </div>
-          <div className="card fees-teaser-card">
+          <div className="card fees-teaser-card" data-reveal="right" style={revealDelay(160)}>
             <div className="fee-card-row">
               <Wallet size={20} />
               <div>
@@ -216,17 +253,17 @@ function DashboardFeatures() {
   return (
     <section className="section">
       <div className="container">
-        <div className="text-center mb-5">
+        <div className="text-center mb-4" data-reveal="up">
           <span className="eyebrow">Client Dashboard</span>
           <h2 className="section-title">Institutional-Grade Investor Experience</h2>
-          <p className="section-subtitle" style={{ margin: '0 auto' }}>
+          <p className="section-subtitle" style={{ margin: '0 auto', textAlign: 'center' }}>
             The dashboard is designed around one principle: total visibility into your capital.
           </p>
         </div>
 
         <div className="grid-3">
-          {dashboardFeatures.map((f) => (
-            <div className="card feature-card" key={f.title}>
+          {dashboardFeatures.map((f, idx) => (
+            <div className="card feature-card" key={f.title} data-reveal="up" style={revealDelay(idx * 90)}>
               <span className="feature-icon">
                 <f.icon size={22} />
               </span>
@@ -244,14 +281,14 @@ function CtaSection() {
   return (
     <section className="section cta-section">
       <div className="container text-center">
-        <h2 className="section-title" style={{ color: 'var(--white)' }}>
+        <h2 className="section-title" data-reveal="up" style={{ color: 'var(--white)' }}>
           Begin the Due Diligence Process
         </h2>
-        <p className="cta-text">
+        <p className="cta-text" data-reveal="up" style={revealDelay(140)}>
           We are accepting a limited number of accredited investors into our closed beta.
           Request the white paper to begin.
         </p>
-        <div className="cta-actions">
+        <div className="cta-actions" data-reveal="up" style={revealDelay(280)}>
           <Link to="/whitepaper" className="btn btn-primary btn-lg">
             Read the White Paper <ArrowRight size={18} />
           </Link>
@@ -274,6 +311,8 @@ export default function HomePage() {
     });
     return () => { mounted = false; };
   }, []);
+
+  useScrollReveal([perf]);
 
   return (
     <>

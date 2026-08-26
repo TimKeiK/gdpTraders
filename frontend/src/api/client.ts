@@ -163,11 +163,24 @@ export const api = {
     return request<{ address: string; asset: string; isActive: boolean }[]>('/wallet/addresses');
   },
 
-  /** Creates a deposit request (KYC must be APPROVED). */
-  async createDeposit(asset: string, amount: number): Promise<{ depositAddress: string; transaction: Transaction }> {
-    return request<{ depositAddress: string; transaction: Transaction }>('/wallet/deposit', {
+  /** Get deposit wallet address for an asset. */
+  async getDepositWalletAddress(asset: string): Promise<{ asset: string; address: string }> {
+    return request<{ asset: string; address: string }>(`/wallet/deposit-address/${asset}`);
+  },
+
+  /** Creates a Stripe payment intent for card deposit. */
+  async createCardDeposit(asset: string, amount: number): Promise<{ clientSecret: string; paymentIntentId: string; amount: number; asset: string; depositAddress: string }> {
+    return request<{ clientSecret: string; paymentIntentId: string; amount: number; asset: string; depositAddress: string }>('/wallet/deposit', {
       method: 'POST',
       body: JSON.stringify({ asset, amount }),
+    });
+  },
+
+  /** Confirms a card deposit after Stripe payment succeeds. */
+  async confirmCardDeposit(paymentIntentId: string, asset: string, amount: number): Promise<{ transaction: Transaction; message: string }> {
+    return request<{ transaction: Transaction; message: string }>('/wallet/deposit-confirm', {
+      method: 'POST',
+      body: JSON.stringify({ paymentIntentId, asset, amount }),
     });
   },
 
