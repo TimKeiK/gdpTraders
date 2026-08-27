@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import morgan from 'morgan';
 import { seedDatabase } from './db/seed.js';
-import { dbMode } from './db/index.js';
+import { dbMode, ensureSchema } from './db/index.js';
 import { pool } from './db/pgStore.js';
 
 import authRoutes from './routes/auth.js';
@@ -98,6 +98,11 @@ async function start() {
   try {
     console.log(`[database] Mode: ${dbMode}`);
     await waitForDatabase();
+
+    // Self-heal any schema drift (e.g. columns added after the DB volume
+    // was first created) before the app or seeder touches the tables.
+    await ensureSchema();
+    console.log('[database] Schema migrations applied');
 
     await seedDatabase();
     app.listen(PORT, () => {

@@ -35,6 +35,7 @@ export interface Transaction {
   strategy: string;
   status: 'Completed' | 'Pending' | 'Processing' | 'Cancelled';
   txHash: string;
+  destinationAddress?: string;
   requiresApproval?: boolean;
   approval1?: boolean;
   approval2?: boolean;
@@ -230,6 +231,12 @@ export interface AdminTransaction extends Transaction {
   userName: string;
 }
 
+/** A withdrawal request as seen in the admin Approvals page (with client identity). */
+export interface WithdrawalRequestView extends Transaction {
+  userEmail: string;
+  userName: string;
+}
+
 export interface AdminDashboard {
   stats: {
     totalUsers: number;
@@ -336,8 +343,8 @@ export const adminApi = {
   },
 
   // Withdrawal multi-sig approvals (existing wallet route)
-  async getWithdrawals(): Promise<Transaction[]> {
-    return request<Transaction[]>('/wallet/withdrawals');
+  async getWithdrawals(): Promise<WithdrawalRequestView[]> {
+    return request<WithdrawalRequestView[]>('/wallet/withdrawals');
   },
 
   async approveWithdrawal(txId: string): Promise<{ transaction: Transaction; message: string }> {

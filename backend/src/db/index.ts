@@ -61,3 +61,13 @@ export const {
 } = store;
 
 export const dbMode = useInMemory ? 'in-memory' : 'postgresql';
+
+/**
+ * Runs idempotent schema migrations (PostgreSQL mode only).
+ * Safe to call at every startup; no-ops in in-memory mode.
+ */
+export async function ensureSchema(): Promise<void> {
+  if (!useInMemory) {
+    await pgStore.ensureSchema();
+  }
+}

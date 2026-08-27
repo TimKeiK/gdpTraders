@@ -1,11 +1,12 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Receipt, MessagesSquare, LogOut, User, Plus } from 'lucide-react';
+import { LayoutDashboard, Receipt, MessagesSquare, LogOut, User, Plus, ArrowDownToLine } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import './DashboardLayout.css';
 
 const navItems = [
   { to: '/dashboard', label: 'Overview', icon: LayoutDashboard, end: true },
   { to: '/dashboard/deposit', label: 'Deposit', icon: Plus },
+  { to: '/dashboard/withdraw', label: 'Withdraw', icon: ArrowDownToLine },
   { to: '/dashboard/transactions', label: 'Transactions', icon: Receipt },
   { to: '/dashboard/support', label: 'Support', icon: MessagesSquare },
 ];

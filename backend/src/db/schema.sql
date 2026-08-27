@@ -57,10 +57,14 @@ CREATE TABLE IF NOT EXISTS transactions (
     strategy VARCHAR(255),
     status VARCHAR(20) NOT NULL DEFAULT 'Processing',
     tx_hash VARCHAR(255),
+    destination_address VARCHAR(255),
     requires_approval BOOLEAN DEFAULT false,
     approval1 BOOLEAN DEFAULT false,
     approval2 BOOLEAN DEFAULT false
 );
+
+-- Migration for databases created before the destination_address column existed
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS destination_address VARCHAR(255);
 
 -- Strategy allocations
 CREATE TABLE IF NOT EXISTS strategy_allocations (

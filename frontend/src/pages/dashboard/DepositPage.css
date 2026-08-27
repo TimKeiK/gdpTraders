@@ -246,3 +246,42 @@
     justify-content: center;
   }
 }
+
+/* ============ Withdraw page layout ============ */
+
+.withdraw-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .withdraw-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.withdraw-side {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.withdraw-next-steps {
+  margin: 14px 0 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.withdraw-next-steps li {
+  font-size: 13.5px;
+  color: var(--gray-400);
+  line-height: 1.6;
+}
+
+.withdraw-next-steps li strong {
+  color: var(--gray-200);
+}

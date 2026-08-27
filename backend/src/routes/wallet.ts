@@ -5,6 +5,8 @@ import {
   addWithdrawalRequest,
   addAuditLog,
   appendLedgerEntry,
+  getLedgerForUser,
+  getAllUsers,
   getWalletsForUser,
   getWithdrawalRequests,
   updateWithdrawalRequest,
@@ -369,25 +371,54 @@ router.post('/crypto-deposit', requireKycApproved, async (req: AuthenticatedRequ
 /**
  * POST /api/wallet/withdraw
  * Creates a withdrawal request requiring multi-sig approval (Admin + Compliance).
+ * Body: { asset, amount, destinationAddress }
  */
 router.post('/withdraw', requireKycApproved, async (req: AuthenticatedRequest, res: Response) => {
-  const { asset, amount, destinationAddress } = req.body;
+  const { asset, amount, destinationAddress } = req.body as {
+    asset?: string;
+    amount?: number;
+    destinationAddress?: string;
+  };
   const user = req.user!;
+  const address = typeof destinationAddress === 'string' ? destinationAddress.trim() : '';
 
-  if (!SUPPORTED_ASSETS.includes(asset)) {
+  if (!asset || !SUPPORTED_ASSETS.includes(asset)) {
     res.status(400).json({ error: `Unsupported asset. Supported: ${SUPPORTED_ASSETS.join(', ')}` });
     return;
   }
-  if (!amount || amount <= 0) {
+  const parsedAmount = Number(amount);
+  if (!amount || Number.isNaN(parsedAmount) || parsedAmount <= 0) {
     res.status(400).json({ error: 'Amount must be positive' });
     return;
   }
-  if (!destinationAddress) {
-    res.status(400).json({ error: 'Destination address is required' });
+  // Basic per-network sanity checks so typos/looped-in wrong-chain addresses
+  // fail fast. Final verification of the on-chain transfer is the approvers' job.
+  const isValidAddress =
+    (asset === 'BTC' && /^[13bc][a-zA-Z0-9]{24,60}$/.test(address)) ||
+    (asset === 'ETH' && /^0x[a-fA-F0-9]{40}$/.test(address)) ||
+    (asset === 'USDT' && /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address));
+  if (!address) {
+    res.status(400).json({ error: 'Destination wallet address is required' });
     return;
   }
-  if (amount > user.withdrawalCap) {
+  if (!isValidAddress) {
+    res.status(400).json({
+      error: `That doesn't look like a valid ${asset} ${asset === 'USDT' ? 'TRC-20' : ''} wallet address. Double-check it and try again.`,
+    });
+    return;
+  }
+  if (parsedAmount > user.withdrawalCap) {
     res.status(400).json({ error: `Amount exceeds daily withdrawal cap of $${user.withdrawalCap}` });
+    return;
+  }
+
+  // Ensure the client actually holds enough funds (ledger = source of truth).
+  const ledger = await getLedgerForUser(user.id);
+  const available = ledger.reduce((sum, entry) => sum + entry.amount, 0);
+  if (parsedAmount > available) {
+    res.status(400).json({
+      error: `Insufficient funds. Available balance: ${available.toLocaleString(undefined, { maximumFractionDigits: 2 })} USD.`,
+    });
     return;
   }
 
@@ -398,17 +429,18 @@ router.post('/withdraw', requireKycApproved, async (req: AuthenticatedRequest, r
     date: new Date().toISOString(),
     type: 'Withdrawal',
     asset,
-    amount,
+    amount: parsedAmount,
     strategy: 'Client Withdrawal',
     status: 'Pending',
     txHash: `0x${nanoid(16)}`,
+    destinationAddress: address,
     requiresApproval: true,
     approval1: false,
     approval2: false,
   };
   await addWithdrawalRequest(tx);
   await addTransaction(tx);
-  await addAuditLog(user.id, 'WITHDRAWAL_REQUESTED', `${asset} ${amount} withdrawal to ${destinationAddress}`);
+  await addAuditLog(user.id, 'WITHDRAWAL_REQUESTED', `${asset} ${parsedAmount} withdrawal to ${address}`);
 
   res.status(201).json({
     transaction: tx,
@@ -418,13 +450,21 @@ router.post('/withdraw', requireKycApproved, async (req: AuthenticatedRequest, r
 
 /**
  * GET /api/wallet/withdrawals (admin/compliance)
- * Lists pending withdrawal requests for multi-sig approval.
+ * Lists withdrawal requests for approval, joined with client identity.
  */
 router.get(
   '/withdrawals',
   requireRole('admin', 'compliance'),
   async (req: AuthenticatedRequest, res: Response) => {
-    res.json(await getWithdrawalRequests());
+    const [requests, users] = await Promise.all([getWithdrawalRequests(), getAllUsers()]);
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    res.json(
+      requests.map((t) => ({
+        ...t,
+        userEmail: userMap.get(t.userId)?.email ?? 'unknown',
+        userName: userMap.get(t.userId)?.name ?? 'unknown',
+      }))
+    );
   }
 );
 

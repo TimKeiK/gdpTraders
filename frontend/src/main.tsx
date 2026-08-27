@@ -26,6 +26,7 @@ import SignUpPage from './pages/dashboard/SignUpPage';
 import DashboardLayout from './components/dashboard/DashboardLayout';
 import OverviewPage from './pages/dashboard/OverviewPage';
 import DepositPage from './pages/dashboard/DepositPage';
+import WithdrawPage from './pages/dashboard/WithdrawPage';
 import TransactionsPage from './pages/dashboard/TransactionsPage';
 import SecurityPage from './pages/dashboard/SecurityPage';
 import TaxPage from './pages/dashboard/TaxPage';
@@ -62,6 +63,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="dashboard" element={<DashboardLayout />}>
               <Route index element={<OverviewPage />} />
               <Route path="deposit" element={<DepositPage />} />
+              <Route path="withdraw" element={<WithdrawPage />} />
               <Route path="transactions" element={<TransactionsPage />} />
               <Route path="security" element={<SecurityPage />} />
               <Route path="tax" element={<TaxPage />} />

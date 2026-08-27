@@ -66,6 +66,7 @@ export interface Transaction {
   strategy: string;
   status: 'Completed' | 'Pending' | 'Processing' | 'Cancelled';
   txHash: string;
+  destinationAddress?: string;
   requiresApproval?: boolean;
   approval1?: boolean;
   approval2?: boolean;

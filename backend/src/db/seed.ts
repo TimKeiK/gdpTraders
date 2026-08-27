@@ -126,7 +126,7 @@ export async function seedDatabase(): Promise<void> {
     { id: 'TX-98421', date: '2026-08-01 14:32 UTC', type: 'Deposit', asset: 'USDT', amount: 250000, strategy: 'DeFi Treasury', status: 'Completed', txHash: '0x8f3a…c91d' },
     { id: 'TX-98390', date: '2026-07-29 09:15 UTC', type: 'Trade', asset: 'BTC', amount: 120000, strategy: 'BTC/ETH Core', status: 'Completed', txHash: '0x2b7e…44af' },
     { id: 'TX-98377', date: '2026-07-26 18:03 UTC', type: 'Trade', asset: 'ETH', amount: 85000, strategy: 'BTC/ETH Core', status: 'Completed', txHash: '0x91cc…08b2' },
-    { id: 'TX-98312', date: '2026-07-22 11:47 UTC', type: 'Withdrawal', asset: 'USDT', amount: 50000, strategy: 'DeFi Treasury', status: 'Processing', txHash: '0x5e17…d3fa' },
+    { id: 'TX-98312', date: '2026-07-22 11:47 UTC', type: 'Withdrawal', asset: 'USDT', amount: 50000, strategy: 'DeFi Treasury', status: 'Completed', txHash: '0x5e17…d3fa' },
     { id: 'TX-98288', date: '2026-07-18 16:29 UTC', type: 'Fee', asset: 'USD', amount: 6875, strategy: 'Management Fee (Monthly)', status: 'Completed', txHash: 'Internal Ledger' },
     { id: 'TX-98240', date: '2026-07-14 08:51 UTC', type: 'Trade', asset: 'SOL', amount: 230000, strategy: 'Active Quant', status: 'Completed', txHash: '0xf4a6…77e1' },
     { id: 'TX-98195', date: '2026-07-10 13:22 UTC', type: 'Trade', asset: 'BTC', amount: 180000, strategy: 'Arbitrage Alpha', status: 'Completed', txHash: '0x0b9d…a833' },

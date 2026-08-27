@@ -32,10 +32,15 @@ const VALID_KYC: KYCStatus[] = ['PENDING', 'SUBMITTED', 'APPROVED', 'REJECTED'];
 
 // ---------- Helpers ----------
 
-/** Net deposited value (USD) for a user derived from the append-only ledger. */
-function netDeposited(ledger: LedgerEntry[], userId: string): number {
+/**
+ * Full portfolio value for a user derived from the ledger — the SAME formula
+ * as /portfolio/summary (all entry types: deposits + withdrawals + trades +
+ * fees + interest) so the admin view can never disagree with what the client
+ * sees on their own overview page.
+ */
+function portfolioValue(ledger: LedgerEntry[], userId: string): number {
   return ledger
-    .filter((e) => e.userId === userId && (e.entryType === 'deposit' || e.entryType === 'withdrawal'))
+    .filter((e) => e.userId === userId)
     .reduce((sum, e) => sum + e.amount, 0);
 }
 
@@ -54,7 +59,7 @@ function accountSummary(user: User, ledger: LedgerEntry[], txns: Transaction[]) 
     kycStatus: user.kycStatus,
     createdAt: user.createdAt,
     withdrawalCap: user.withdrawalCap,
-    balance: netDeposited(ledger, user.id),
+    balance: portfolioValue(ledger, user.id),
     deposits,
     withdrawals,
     pendingWithdrawals: pendingWithdrawals.map((t) => ({
@@ -87,9 +92,10 @@ router.get(
       getAuditLogs(),
     ]);
 
-    const totalAUM = ledger
-      .filter((e) => e.entryType === 'deposit' || e.entryType === 'withdrawal')
-      .reduce((s, e) => s + e.amount, 0);
+    // AUM = what clients collectively hold right now. This must use the same
+    // formula as /portfolio/summary (full ledger incl. trading P&L) so the
+    // admin view can never disagree with the sum of client portfolios.
+    const totalAUM = ledger.reduce((s, e) => s + e.amount, 0);
 
     const completedDeposits = txns
       .filter((t) => t.type === 'Deposit' && t.status === 'Completed')

@@ -6,11 +6,11 @@ import {
   AlertCircle,
   UserCheck,
 } from 'lucide-react';
-import { adminApi, formatCurrency, type Transaction } from '../../api/client';
+import { adminApi, formatCurrency, type WithdrawalRequestView } from '../../api/client';
 import './admin.css';
 
 export default function AdminApprovals() {
-  const [items, setItems] = useState<Transaction[]>([]);
+  const [items, setItems] = useState<WithdrawalRequestView[]>([]);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
   const [busyId, setBusyId] = useState('');
@@ -27,7 +27,7 @@ export default function AdminApprovals() {
 
   useEffect(load, []);
 
-  const approve = async (t: Transaction) => {
+  const approve = async (t: WithdrawalRequestView) => {
     if (busyId) return;
     setBusyId(t.id);
     setMsg('');
@@ -43,7 +43,7 @@ export default function AdminApprovals() {
     }
   };
 
-  const signCount = (t: Transaction) => (t.approval1 ? 1 : 0) + (t.approval2 ? 1 : 0);
+  const signCount = (t: WithdrawalRequestView) => (t.approval1 ? 1 : 0) + (t.approval2 ? 1 : 0);
   const active = items.filter((t) => t.status === 'Pending');
 
   return (
@@ -79,8 +79,10 @@ export default function AdminApprovals() {
             <thead>
               <tr>
                 <th>ID</th>
+                <th>Client</th>
                 <th>Asset</th>
                 <th>Amount</th>
+                <th>Destination Wallet</th>
                 <th>Date</th>
                 <th>Approvals</th>
                 <th>Status</th>
@@ -89,7 +91,7 @@ export default function AdminApprovals() {
             </thead>
             <tbody>
               {items.length === 0 && (
-                <tr><td colSpan={7} className="admin-empty">No withdrawal requests.</td></tr>
+                <tr><td colSpan={9} className="admin-empty">No withdrawal requests.</td></tr>
               )}
               {items.map((t) => {
                 const signed = signCount(t);
@@ -97,8 +99,19 @@ export default function AdminApprovals() {
                 return (
                   <tr key={t.id}>
                     <td className="mono">{t.id}</td>
+                    <td>
+                      <div style={{ fontWeight: 600 }}>{t.userName}</div>
+                      <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>{t.userEmail}</div>
+                    </td>
                     <td>{t.asset}</td>
                     <td><strong>{formatCurrency(t.amount)}</strong></td>
+                    <td
+                      className="mono"
+                      title={t.destinationAddress}
+                      style={{ maxWidth: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    >
+                      {t.destinationAddress ?? '—'}
+                    </td>
                     <td className="mono">{new Date(t.date).toLocaleString()}</td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
