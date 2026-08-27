@@ -14,6 +14,7 @@ const STATUS_PILL: Record<string, string> = {
   Completed: 'pill-green',
   Pending: 'pill-amber',
   Processing: 'pill-purple',
+  Cancelled: 'pill-red',
 };
 
 const TYPE_PILL: Record<string, string> = {
@@ -159,7 +160,7 @@ export default function AdminTransactions() {
                   <td><span className={`admin-pill ${STATUS_PILL[t.status] || 'pill-gray'}`}>{t.status}</span></td>
                   <td className="mono">{new Date(t.date).toLocaleString()}</td>
                   <td>
-                    {t.type === 'Deposit' && t.status !== 'Completed' ? (
+                    {t.type === 'Deposit' && t.status !== 'Completed' && t.status !== 'Cancelled' ? (
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button className="admin-btn green" onClick={() => { setConfirmFor(t); setConfirmAmount(String(t.amount || '')); setError(''); }}>
                           <CheckCircle size={14} /> Confirm

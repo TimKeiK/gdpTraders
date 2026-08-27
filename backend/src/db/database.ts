@@ -64,7 +64,7 @@ export interface Transaction {
   asset: string;
   amount: number;
   strategy: string;
-  status: 'Completed' | 'Pending' | 'Processing';
+  status: 'Completed' | 'Pending' | 'Processing' | 'Cancelled';
   txHash: string;
   requiresApproval?: boolean;
   approval1?: boolean;

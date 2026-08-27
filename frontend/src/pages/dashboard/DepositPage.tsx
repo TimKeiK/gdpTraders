@@ -66,6 +66,7 @@ export default function DepositPage() {
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [txRef, setTxRef] = useState('');
+  const [amount, setAmount] = useState('');
 
   const selectedAsset = SUPPORTED_ASSETS.find((a) => a.value === asset) ?? SUPPORTED_ASSETS[0];
   const address = DEPOSIT_ADDRESSES[asset];
@@ -95,6 +96,11 @@ export default function DepositPage() {
       setError('Please choose a coin to deposit.');
       return;
     }
+    const parsedAmount = Number(amount);
+    if (!amount || Number.isNaN(parsedAmount) || parsedAmount <= 0) {
+      setError('Please enter the amount you wish to deposit.');
+      return;
+    }
     setError('');
     setStep('instructions');
   };
@@ -119,7 +125,7 @@ export default function DepositPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await api.submitCryptoDeposit(asset);
+      const res = await api.submitCryptoDeposit(asset, Number(amount));
       setTxRef(res.transaction.id);
       setStep('sent');
     } catch (err) {
@@ -132,6 +138,7 @@ export default function DepositPage() {
   const reset = () => {
     setStep('select');
     setAsset('USDT');
+    setAmount('');
     setError('');
     setCopied(false);
     setTxRef('');
@@ -246,6 +253,26 @@ export default function DepositPage() {
               <p className="form-hint">
                 {selectedAsset.icon} {selectedAsset.label} will be sent via the{' '}
                 <strong>{selectedAsset.network}</strong>.
+              </p>
+            </div>
+
+            <div className="form-group">
+              <label>Deposit Amount (USD)</label>
+              <input
+                className="form-control"
+                type="number"
+                inputMode="decimal"
+                min="1"
+                step="any"
+                placeholder="e.g. 5,000"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                disabled={loading}
+                style={{ fontSize: '16px', height: '52px' }}
+              />
+              <p className="form-hint">
+                Enter how much you plan to deposit. This amount is used to verify your transfer and is
+                credited to your portfolio once the admin confirms it.
               </p>
             </div>
 

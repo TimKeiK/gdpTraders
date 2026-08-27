@@ -70,7 +70,7 @@ export interface Transaction {
   asset: string;
   amount: number;
   strategy: string;
-  status: 'Completed' | 'Pending' | 'Processing';
+  status: 'Completed' | 'Pending' | 'Processing' | 'Cancelled';
   txHash: string;
   requiresApproval?: boolean;
   approval1?: boolean;
@@ -268,7 +268,17 @@ export async function addTransaction(tx: Transaction): Promise<void> {
   await pool.query(
     `INSERT INTO transactions (id, user_id, date, type, asset, amount, strategy, status, tx_hash, requires_approval, approval1, approval2)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-     ON CONFLICT (id) DO NOTHING`,
+     ON CONFLICT (id) DO UPDATE SET
+       date = EXCLUDED.date,
+       type = EXCLUDED.type,
+       asset = EXCLUDED.asset,
+       amount = EXCLUDED.amount,
+       strategy = EXCLUDED.strategy,
+       status = EXCLUDED.status,
+       tx_hash = EXCLUDED.tx_hash,
+       requires_approval = EXCLUDED.requires_approval,
+       approval1 = EXCLUDED.approval1,
+       approval2 = EXCLUDED.approval2`,
     [tx.id, tx.userId, tx.date, tx.type, tx.asset, tx.amount, tx.strategy, tx.status,
      tx.txHash, tx.requiresApproval ?? false, tx.approval1 ?? false, tx.approval2 ?? false]
   );

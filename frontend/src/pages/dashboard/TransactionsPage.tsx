@@ -7,6 +7,7 @@ const statusClass: Record<Transaction['status'], string> = {
   Completed: 'status-completed',
   Pending: 'status-pending',
   Processing: 'status-processing',
+  Cancelled: 'status-failed',
 };
 
 export default function TransactionsPage() {

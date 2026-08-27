@@ -295,7 +295,7 @@ router.post(
       return;
     }
 
-    const updated: Transaction = { ...tx, status: 'Pending', strategy: `${tx.strategy || 'Deposit'} (Denied)` };
+    const updated: Transaction = { ...tx, status: 'Cancelled', strategy: `${tx.strategy || 'Deposit'} (Denied)` };
     await addTransaction(updated);
     await addAuditLog(tx.userId, 'DEPOSIT_DENIED', `Deposit ${tx.id} denied by ${req.user!.email}`);
 

@@ -313,16 +313,23 @@ router.post('/deposit-confirm', requireKycApproved, async (req: AuthenticatedReq
  * Records a crypto deposit submitted by the user via manual wallet transfer.
  * The user sends the selected asset to the constant custodial deposit wallet
  * (DEPOSIT_WALLET_ADDRESSES), then notifies us to verify the on-chain transfer.
- * The deposit is recorded as Processing until confirmed.
+ * The deposit is recorded as Processing until confirmed. The declared amount
+ * is stored so admins can verify it against the actual on-chain transfer
+ * before crediting the client's portfolio (ledger 'deposit' entry).
  *
- * Body: { asset: 'USDT' }
+ * Body: { asset: 'USDT', amount: 1500 }
  */
 router.post('/crypto-deposit', requireKycApproved, async (req: AuthenticatedRequest, res: Response) => {
-  const { asset } = req.body;
+  const { asset, amount } = req.body as { asset?: string; amount?: number };
   const userId = req.userId!;
 
-  if (!SUPPORTED_ASSETS.includes(asset)) {
+  if (!asset || !SUPPORTED_ASSETS.includes(asset)) {
     res.status(400).json({ error: `Unsupported asset. Supported: ${SUPPORTED_ASSETS.join(', ')}` });
+    return;
+  }
+  const parsedAmount = Number(amount);
+  if (!amount || Number.isNaN(parsedAmount) || parsedAmount <= 0) {
+    res.status(400).json({ error: 'A positive deposit amount is required.' });
     return;
   }
 
@@ -340,7 +347,7 @@ router.post('/crypto-deposit', requireKycApproved, async (req: AuthenticatedRequ
     date: new Date().toISOString(),
     type: 'Deposit',
     asset,
-    amount: 0,
+    amount: parsedAmount,
     strategy: 'Pending Allocation',
     status: 'Processing',
     txHash: `0x${nanoid(16)}`,
@@ -349,7 +356,7 @@ router.post('/crypto-deposit', requireKycApproved, async (req: AuthenticatedRequ
   await addAuditLog(
     userId,
     'DEPOSIT_SUBMITTED',
-    `User reported sending ${asset} to custodial wallet ${depositAddress} (${txId})`
+    `User reported sending ${parsedAmount} ${asset} to custodial wallet ${depositAddress} (${txId})`
   );
 
   res.status(201).json({
@@ -454,6 +461,7 @@ router.post(
       await appendLedgerEntry(tx.userId, tx.asset, -tx.amount, 'withdrawal', tx.id);
       await addAuditLog(tx.userId, 'WITHDRAWAL_EXECUTED', `${tx.asset} ${tx.amount} withdrawal executed`);
       await updateWithdrawalRequest(tx.id, { status: 'Completed' });
+      await addTransaction(tx); // keep the transactions-table copy in sync (pgStore has separate tables)
       res.json({ transaction: tx, message: 'Withdrawal approved by both parties and executed.' });
     } else {
       await updateWithdrawalRequest(tx.id, { approval1: tx.approval1, approval2: tx.approval2 });

@@ -33,7 +33,7 @@ export interface Transaction {
   asset: string;
   amount: number;
   strategy: string;
-  status: 'Completed' | 'Pending' | 'Processing';
+  status: 'Completed' | 'Pending' | 'Processing' | 'Cancelled';
   txHash: string;
   requiresApproval?: boolean;
   approval1?: boolean;
@@ -172,10 +172,13 @@ export const api = {
   },
 
   /** Records a crypto transfer submitted by the user (manual wallet deposit). */
-  async submitCryptoDeposit(asset: string): Promise<{ transaction: Transaction; message: string }> {
+  async submitCryptoDeposit(
+    asset: string,
+    amount: number
+  ): Promise<{ transaction: Transaction; message: string }> {
     return request<{ transaction: Transaction; message: string }>('/wallet/crypto-deposit', {
       method: 'POST',
-      body: JSON.stringify({ asset }),
+      body: JSON.stringify({ asset, amount }),
     });
   },
 
