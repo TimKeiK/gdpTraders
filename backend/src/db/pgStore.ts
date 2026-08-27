@@ -31,6 +31,8 @@ export interface User {
   kycStatus: KYCStatus;
   ipWhitelist: string[];
   withdrawalCap: number;
+  isEmailVerified: boolean;
+  emailVerificationToken: string | null;
   createdAt: string;
 }
 
@@ -104,7 +106,6 @@ export async function appendLedgerEntry(
 ): Promise<LedgerEntry> {
   const client = await pool.connect();
   try {
-    // Get the last entry's hash
     const lastRes = await client.query(
       'SELECT integrity_hash FROM ledger_entries ORDER BY id DESC LIMIT 1'
     );
@@ -173,11 +174,11 @@ export async function verifyLedgerIntegrity(): Promise<{ valid: boolean; checked
 
 export async function addUser(user: User): Promise<void> {
   await pool.query(
-    `INSERT INTO users (id, email, password_hash, name, role, kyc_status, ip_whitelist, withdrawal_cap, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `INSERT INTO users (id, email, password_hash, name, role, kyc_status, ip_whitelist, withdrawal_cap, is_email_verified, email_verification_token, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      ON CONFLICT (id) DO NOTHING`,
     [user.id, user.email, user.passwordHash, user.name, user.role, user.kycStatus,
-     user.ipWhitelist, user.withdrawalCap, user.createdAt]
+     user.ipWhitelist, user.withdrawalCap, user.isEmailVerified, user.emailVerificationToken, user.createdAt]
   );
 }
 
@@ -197,6 +198,13 @@ export async function setKycStatus(userId: string, status: KYCStatus): Promise<v
   await pool.query('UPDATE users SET kyc_status = $1 WHERE id = $2', [status, userId]);
 }
 
+export async function setEmailVerified(userId: string): Promise<void> {
+  await pool.query(
+    'UPDATE users SET is_email_verified = true, email_verification_token = NULL WHERE id = $1',
+    [userId]
+  );
+}
+
 function mapUser(row: any): User {
   return {
     id: row.id,
@@ -207,6 +215,8 @@ function mapUser(row: any): User {
     kycStatus: row.kyc_status,
     ipWhitelist: row.ip_whitelist || [],
     withdrawalCap: Number(row.withdrawal_cap),
+    isEmailVerified: row.is_email_verified,
+    emailVerificationToken: row.email_verification_token,
     createdAt: row.created_at,
   };
 }
@@ -223,7 +233,7 @@ export async function addWallet(wallet: Wallet): Promise<void> {
 
 export async function getWalletsForUser(userId: string): Promise<Wallet[]> {
   const res = await pool.query('SELECT * FROM wallets WHERE user_id = $1', [userId]);
-  return res.rows.map((r) => ({
+  return res.rows.map((r: any) => ({
     id: r.id,
     userId: r.user_id,
     asset: r.asset,
@@ -307,7 +317,7 @@ export async function getAllocations(userId: string): Promise<StrategyAllocation
     'SELECT * FROM strategy_allocations WHERE user_id = $1',
     [userId]
   );
-  return res.rows.map((r) => ({
+  return res.rows.map((r: any) => ({
     strategyId: r.strategy_id,
     strategyName: r.strategy_name,
     allocation: Number(r.allocation),
@@ -333,7 +343,7 @@ export async function getPerformance(userId: string): Promise<{ date: string; po
     'SELECT * FROM performance_series WHERE user_id = $1 ORDER BY date',
     [userId]
   );
-  return res.rows.map((r) => ({
+  return res.rows.map((r: any) => ({
     date: r.date,
     portfolio: Number(r.portfolio),
     benchmark: Number(r.benchmark),
@@ -351,7 +361,7 @@ export async function addAuditLog(userId: string, action: string, details: strin
 
 export async function getAuditLogs(): Promise<AuditLogEntry[]> {
   const res = await pool.query('SELECT * FROM audit_logs ORDER BY created_at DESC');
-  return res.rows.map((r) => ({
+  return res.rows.map((r: any) => ({
     id: String(r.id),
     userId: r.user_id,
     action: r.action,
@@ -397,7 +407,7 @@ export async function getLedgerForUser(userId: string): Promise<LedgerEntry[]> {
     'SELECT * FROM ledger_entries WHERE user_id = $1 ORDER BY id',
     [userId]
   );
-  return res.rows.map((r) => ({
+  return res.rows.map((r: any) => ({
     id: String(r.id),
     userId: r.user_id,
     asset: r.asset,
@@ -411,7 +421,7 @@ export async function getLedgerForUser(userId: string): Promise<LedgerEntry[]> {
 
 export async function getAllLedger(): Promise<LedgerEntry[]> {
   const res = await pool.query('SELECT * FROM ledger_entries ORDER BY id');
-  return res.rows.map((r) => ({
+  return res.rows.map((r: any) => ({
     id: String(r.id),
     userId: r.user_id,
     asset: r.asset,

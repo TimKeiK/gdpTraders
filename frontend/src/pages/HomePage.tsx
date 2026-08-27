@@ -35,6 +35,36 @@ const dashboardFeatures = [
   { icon: Users, title: 'Due Diligence', text: 'Full PM bios and track records shared securely under NDA during onboarding.' },
 ];
 
+// TODO: Replace placeholder answers with content you can actually stand behind
+// and substantiate (regulatory filings, named/verifiable custodian, audited
+// performance data, etc.) before this goes live.
+const faqs = [
+  {
+    q: 'Who can invest with GDPTraders?',
+    a: 'Access is strictly limited to Professional Investors and Accredited Investors (individuals, family offices, and institutions). All prospective investors must complete a mandatory KYC/AML verification and Source of Funds check before any capital is accepted into the fund.'
+  },
+  {
+    q: 'How do I see the track record?',
+    a: 'To protect our operational security and the privacy of our limited partners, we do not publish live or historical performance metrics publicly. Full backtested data, audited track records, and Portfolio Manager CVs are shared exclusively through our secure data-room during the private onboarding process, after a standard NDA is executed.'
+  },
+  {
+    q: 'Are there any hidden fees?',
+    a: 'Absolutely none. We operate on a fully transparent fee schedule: a 1.5% annual management fee (charged monthly on AUM) and a 15% performance fee on new profits—strictly enforced with a High Water Mark, meaning we only earn performance fees when your portfolio reaches a new all-time high. There are zero entry/load fees, zero exit fees, and zero withdrawal fees. (Network gas fees are passed through at exact cost.)'
+  },
+  {
+    q: 'How is my crypto secured?',
+    a: 'Assets are held in institutional-grade, multi-signature cold storage. On the operational side, we enforce crypto address whitelisting with a mandatory 48-hour cooling-off period for newly added addresses to prevent unauthorized transfers. This is paired with 24/7 automated risk monitoring and a tamper-evident ledger for every trade executed on your behalf.'
+  },
+  {
+    q: 'Can I withdraw my funds anytime?',
+    a: 'Yes. You retain full control of your capital. Fiat withdrawals are processed within 1–3 business days, while crypto withdrawals to your pre-whitelisted external wallets are processed instantly. There are no lock-up periods or exit penalties.'
+  },
+  {
+    q: 'Do you custody assets yourselves?',
+    a: 'No. We partner with regulated, institutional-grade third-party custodians to ensure strict segregation of client funds and operational security. Formal custody, execution, and legal infrastructure partners will be named publicly here on the website once all contracts are formally executed and confirmed in writing—a process we prioritize for full regulatory transparency.'
+  }
+];
+
 function HeroSection() {
   return (
     <section className="hero">
@@ -240,6 +270,72 @@ function DashboardFeatures() {
   );
 }
 
+function FaqSection() {
+  return (
+    <section className="section" style={{ background: 'var(--bg-deep)' }}>
+      <div className="container">
+        <div className="text-center mb-5">
+          <span className="eyebrow">FAQ</span>
+          <h2 className="section-title">Straight Answers to Your Questions</h2>
+          <p className="section-subtitle" style={{ margin: '0 auto' }}>
+            Transparency isn't just about fees — it's about giving you clarity before you invest.
+          </p>
+        </div>
+
+        <div
+          style={{
+            maxWidth: '820px',
+            margin: '0 auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+          }}
+        >
+          {faqs.map((faq, idx) => (
+            <details
+              key={idx}
+              className="card"
+              style={{ padding: '20px 24px', cursor: 'pointer', border: '1px solid rgba(255,255,255,0.06)' }}
+            >
+              <summary
+                style={{
+                  listStyle: 'none',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontWeight: 600,
+                  fontSize: '16px',
+                  color: 'var(--white)',
+                  cursor: 'pointer',
+                }}
+              >
+                {faq.q}
+                <span style={{ fontSize: '20px', color: 'var(--gold)', marginLeft: '16px' }}>+</span>
+              </summary>
+              <p
+                style={{
+                  marginTop: '16px',
+                  paddingTop: '16px',
+                  borderTop: '1px solid rgba(255,255,255,0.06)',
+                  color: 'rgba(255,255,255,0.75)',
+                  fontSize: '15px',
+                  lineHeight: '1.7',
+                }}
+              >
+                {faq.a}
+              </p>
+            </details>
+          ))}
+        </div>
+
+        <p style={{ textAlign: 'center', marginTop: '32px', fontSize: '14px', color: 'var(--gray-500)' }}>
+          Still have questions? Reach out to us during the due diligence process.
+        </p>
+      </div>
+    </section>
+  );
+}
+
 function CtaSection() {
   return (
     <section className="section cta-section">
@@ -283,6 +379,7 @@ export default function HomePage() {
       <StrategiesSection />
       <FeesTeaser />
       <DashboardFeatures />
+      <FaqSection />
       <CtaSection />
     </>
   );

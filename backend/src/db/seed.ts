@@ -49,6 +49,8 @@ export async function seedDatabase(): Promise<void> {
     kycStatus: 'APPROVED',
     ipWhitelist: [],
     withdrawalCap: 100000,
+    isEmailVerified: true,
+    emailVerificationToken: null,
     createdAt: new Date().toISOString(),
   };
   await addUser(demoUser);
@@ -64,6 +66,8 @@ export async function seedDatabase(): Promise<void> {
     kycStatus: 'APPROVED',
     ipWhitelist: [],
     withdrawalCap: 0,
+    isEmailVerified: true,
+    emailVerificationToken: null,
     createdAt: new Date().toISOString(),
   });
 
@@ -77,6 +81,8 @@ export async function seedDatabase(): Promise<void> {
     kycStatus: 'APPROVED',
     ipWhitelist: [],
     withdrawalCap: 0,
+    isEmailVerified: true,
+    emailVerificationToken: null,
     createdAt: new Date().toISOString(),
   });
 

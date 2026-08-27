@@ -1,5 +1,5 @@
 services:
-  # PostgreSQL database (backend.md §6)
+  # PostgreSQL database
   postgres:
     image: postgres:16-alpine
     container_name: gdptraders-postgres
@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: gdptrader_password
       POSTGRES_DB: gdptraders
     ports:
-      - "5433:5432"  # Host 5433 → container 5432 (avoids local PostgreSQL conflict)
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./backend/src/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
@@ -41,13 +41,13 @@ services:
       dockerfile: Dockerfile
     container_name: gdptraders-backend
     restart: always
+    env_file:
+      - .env
     environment:
       NODE_ENV: production
       PORT: 8000
       USE_IN_MEMORY_DB: "false"
       DATABASE_URL: postgres://gdptrader:gdptrader_password@postgres:5432/gdptraders
-      JWT_SECRET: gdptraders_production_secret_change_me
-      JWT_EXPIRES_IN: "1h"
     ports:
       - "8000:8000"
     depends_on:

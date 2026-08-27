@@ -37,6 +37,7 @@ export const {
   findUserByEmail,
   findUserById,
   setKycStatus,
+  setEmailVerified,        // added
   addWallet,
   getWalletsForUser,
   addDepositAddress,

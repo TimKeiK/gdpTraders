@@ -11,6 +11,8 @@ CREATE TABLE IF NOT EXISTS users (
     kyc_status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     ip_whitelist TEXT[] DEFAULT '{}',
     withdrawal_cap NUMERIC(20, 2) DEFAULT 100000,
+    is_email_verified BOOLEAN DEFAULT FALSE,
+    email_verification_token VARCHAR(255),
     created_at TIMESTAMP DEFAULT NOW()
 );
 

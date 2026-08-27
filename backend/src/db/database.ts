@@ -25,6 +25,8 @@ export interface User {
   kycStatus: KYCStatus;
   ipWhitelist: string[];
   withdrawalCap: number; // daily USD cap
+  isEmailVerified: boolean;
+  emailVerificationToken: string | null;
   createdAt: string;
 }
 
@@ -180,6 +182,14 @@ export function findUserById(id: string): User | undefined {
 export function setKycStatus(userId: string, status: KYCStatus): void {
   const user = store.users.get(userId);
   if (user) user.kycStatus = status;
+}
+
+export function setEmailVerified(userId: string): void {
+  const user = store.users.get(userId);
+  if (user) {
+    user.isEmailVerified = true;
+    user.emailVerificationToken = null;
+  }
 }
 
 export function addWallet(wallet: Wallet): void {

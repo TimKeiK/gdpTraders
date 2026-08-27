@@ -1,19 +1,28 @@
+// backend/src/routes/auth.ts
 import { Router, type Request, type Response } from 'express';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import { nanoid } from 'nanoid';
 import {
   addUser,
   findUserByEmail,
+  findUserById,
+  setEmailVerified,
   addAuditLog,
   type User,
 } from '../db/index.js';
 import { generateToken, requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
+import { sendVerificationEmail } from '../lib/email.js';
 
 const router = Router();
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MIN_PASSWORD_LENGTH = 8;
+const JWT_SECRET = process.env.JWT_SECRET || 'gdptraders_dev_secret_change_me_in_production';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+
 /**
  * POST /api/auth/register
- * Creates a new user. KYC status starts PENDING - no deposits until APPROVED.
  */
 router.post('/register', async (req: Request, res: Response) => {
   const { email, password, name } = req.body;
@@ -22,42 +31,124 @@ router.post('/register', async (req: Request, res: Response) => {
     res.status(400).json({ error: 'Email, password, and name are required' });
     return;
   }
-  if (password.length < 8) {
-    res.status(400).json({ error: 'Password must be at least 8 characters' });
+  if (typeof email !== 'string' || !EMAIL_REGEX.test(email)) {
+    res.status(400).json({ error: 'Please provide a valid email address' });
     return;
   }
-  if (await findUserByEmail(email)) {
+  if (typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH) {
+    res.status(400).json({ error: `Password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+    return;
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+
+  if (await findUserByEmail(normalizedEmail)) {
     res.status(409).json({ error: 'An account with this email already exists' });
     return;
   }
 
-  const passwordHash = await bcrypt.hash(password, 12);
+  try {
+    const passwordHash = await bcrypt.hash(password, 12);
+    const userId = `user_${nanoid(10)}`;
 
-  const user: User = {
-    id: `user_${nanoid(10)}`,
-    email: email.toLowerCase(),
-    passwordHash,
-    name,
-    role: 'client',
-    kycStatus: 'PENDING',
-    ipWhitelist: [],
-    withdrawalCap: 100000, // default daily cap
-    createdAt: new Date().toISOString(),
-  };
+    const verificationToken = jwt.sign(
+      { userId, email: normalizedEmail, purpose: 'email_verification' },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+    const verificationLink = `${FRONTEND_URL}/verify-email?token=${verificationToken}`;
 
-  await addUser(user);
-  await addAuditLog(user.id, 'ACCOUNT_CREATED', `User registered with email ${user.email}`);
+    // Send before persisting: a failed send means no orphaned user record.
+    await sendVerificationEmail({
+      to: normalizedEmail,
+      username: name,
+      verificationLink,
+    });
 
-  const token = generateToken(user);
-  res.status(201).json({
-    token,
-    user: { id: user.id, email: user.email, name: user.name, role: user.role, kycStatus: user.kycStatus },
-  });
+    const user: User = {
+      id: userId,
+      email: normalizedEmail,
+      passwordHash,
+      name,
+      role: 'client',
+      kycStatus: 'PENDING',
+      ipWhitelist: [],
+      withdrawalCap: 100000,
+      isEmailVerified: false,
+      emailVerificationToken: verificationToken,
+      createdAt: new Date().toISOString(),
+    };
+
+    await addUser(user);
+    await addAuditLog(user.id, 'ACCOUNT_CREATED', `User registered with email ${user.email}`);
+
+    res.status(201).json({
+      message: 'Registered. Please check your email to verify your account before logging in.',
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        kycStatus: user.kycStatus,
+        isEmailVerified: user.isEmailVerified,
+      },
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Failed to complete registration. Please try again.' });
+  }
+});
+
+/**
+ * GET /api/auth/verify-email
+ */
+router.get('/verify-email', async (req: Request, res: Response) => {
+  const { token } = req.query;
+
+  if (!token || typeof token !== 'string') {
+    res.status(400).json({ error: 'Missing token' });
+    return;
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as {
+      userId: string;
+      email: string;
+      purpose: string;
+    };
+
+    if (decoded.purpose !== 'email_verification') {
+      res.status(400).json({ error: 'Invalid token type' });
+      return;
+    }
+
+    const user = await findUserById(decoded.userId);
+    if (!user || user.email !== decoded.email) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    if (user.isEmailVerified) {
+      res.status(200).json({ message: 'Email already verified' });
+      return;
+    }
+
+    await setEmailVerified(user.id);
+    await addAuditLog(user.id, 'EMAIL_VERIFIED', 'Email address verified');
+
+    res.status(200).json({ message: 'Email verified successfully! You can now log in.' });
+  } catch (error) {
+    if (error instanceof jwt.TokenExpiredError) {
+      res.status(400).json({ error: 'Verification link has expired. Please request a new one.' });
+      return;
+    }
+    console.error('Verification error:', error);
+    res.status(500).json({ error: 'Invalid or corrupted token' });
+  }
 });
 
 /**
  * POST /api/auth/login
- * Verifies credentials and returns a JWT.
  */
 router.post('/login', async (req: Request, res: Response) => {
   const { email, password } = req.body;
@@ -67,7 +158,7 @@ router.post('/login', async (req: Request, res: Response) => {
     return;
   }
 
-  const user = await findUserByEmail(email);
+  const user = await findUserByEmail(email.trim().toLowerCase());
   if (!user) {
     res.status(401).json({ error: 'Invalid credentials' });
     return;
@@ -77,6 +168,11 @@ router.post('/login', async (req: Request, res: Response) => {
   if (!valid) {
     await addAuditLog(user.id, 'LOGIN_FAILED', 'Invalid password attempt');
     res.status(401).json({ error: 'Invalid credentials' });
+    return;
+  }
+
+  if (!user.isEmailVerified) {
+    res.status(403).json({ error: 'Please verify your email before logging in' });
     return;
   }
 
@@ -97,7 +193,6 @@ router.post('/login', async (req: Request, res: Response) => {
 
 /**
  * GET /api/auth/profile
- * Returns the current user's profile.
  */
 router.get('/profile', requireAuth, (req: AuthenticatedRequest, res: Response) => {
   const user = req.user!;
