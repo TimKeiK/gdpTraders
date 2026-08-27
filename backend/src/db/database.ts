@@ -13,7 +13,7 @@ import { createHash } from 'crypto';
 
 export type KYCStatus = 'PENDING' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
 export type WalletType = 'hot' | 'warm' | 'cold';
-export type EntryType = 'deposit' | 'withdrawal' | 'trade' | 'fee' | 'interest';
+export type EntryType = 'deposit' | 'withdrawal' | 'trade' | 'fee' | 'interest' | 'profit' | 'loss';
 export type UserRole = 'client' | 'admin' | 'compliance';
 
 export interface User {

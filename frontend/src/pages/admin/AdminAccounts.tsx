@@ -5,6 +5,7 @@ import {
   ShieldCheck,
   UserCog,
   Plus,
+  Minus,
   AlertCircle,
   CheckCircle,
   DollarSign,
@@ -44,6 +45,14 @@ export default function AdminAccounts() {
   const [depNote, setDepNote] = useState('');
   const [depBusy, setDepBusy] = useState(false);
   const [depErr, setDepErr] = useState('');
+
+  // Manual debit (loss) modal state
+  const [debitFor, setDebitFor] = useState<AdminUser | null>(null);
+  const [debAsset, setDebAsset] = useState('USDT');
+  const [debAmount, setDebAmount] = useState('');
+  const [debNote, setDebNote] = useState('');
+  const [debBusy, setDebBusy] = useState(false);
+  const [debErr, setDebErr] = useState('');
 
   const load = () => {
     adminApi
@@ -109,6 +118,35 @@ export default function AdminAccounts() {
     setDepErr('');
   };
 
+  const openDebit = (u: AdminUser) => {
+    setDebitFor(u);
+    setDebAsset('USDT');
+    setDebAmount('');
+    setDebNote('');
+    setDebErr('');
+  };
+
+  const submitDebit = async () => {
+    if (!debitFor) return;
+    const amount = parseFloat(debAmount);
+    if (!amount || amount <= 0) {
+      setDebErr('Enter a positive amount.');
+      return;
+    }
+    setDebBusy(true);
+    setDebErr('');
+    try {
+      await adminApi.manualDebit(debitFor.id, debAsset, amount, debNote || undefined);
+      setMsg(`Debited ${amount} ${debAsset} from ${debitFor.email} (recorded as loss)`);
+      setDebitFor(null);
+      load();
+    } catch (e) {
+      setDebErr(e instanceof Error ? e.message : 'Failed to debit account');
+    } finally {
+      setDebBusy(false);
+    }
+  };
+
   const submitDeposit = async () => {
     if (!depositFor) return;
     const amount = parseFloat(depAmount);
@@ -166,6 +204,7 @@ export default function AdminAccounts() {
                 <th>Role</th>
                 <th>KYC</th>
                 <th>Balance</th>
+                <th>P&amp;L (Net)</th>
                 <th>Deposits</th>
                 <th>Withdrawals</th>
                 <th>Pending</th>
@@ -174,7 +213,7 @@ export default function AdminAccounts() {
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={8} className="admin-empty">No accounts match your search.</td></tr>
+                <tr><td colSpan={9} className="admin-empty">No accounts match your search.</td></tr>
               )}
               {filtered.map((u) => (
                 <tr key={u.id}>
@@ -186,6 +225,14 @@ export default function AdminAccounts() {
                   <td><span className={`admin-pill ${ROLE_PILL[u.role] || 'pill-gray'}`}>{u.role}</span></td>
                   <td><span className={`admin-pill ${KYC_PILL[u.kycStatus] || 'pill-gray'}`}>{u.kycStatus}</span></td>
                   <td><strong>{formatCurrency(u.balance)}</strong></td>
+                  <td>
+                    <div><strong className={u.netPnl >= 0 ? 'pos' : 'neg'}>{formatCurrency(u.netPnl)}</strong></div>
+                    <div style={{ fontSize: 11, color: 'var(--gray-400)' }}>
+                      <span className="pos">+{formatCurrency(u.totalProfit)}</span>
+                      {' / '}
+                      <span className="neg">-{formatCurrency(u.totalLoss)}</span>
+                    </div>
+                  </td>
                   <td>{formatCurrency(u.deposits)}</td>
                   <td>{formatCurrency(u.withdrawals)}</td>
                   <td>
@@ -236,9 +283,14 @@ export default function AdminAccounts() {
                           <ShieldCheck size={13} /> staff account
                         </span>
                       ) : (
-                        <button className="admin-btn green" onClick={() => openDeposit(u)} title="Credit funds">
-                          <DollarSign size={14} /> Credit
-                        </button>
+                        <>
+                          <button className="admin-btn green" onClick={() => openDeposit(u)} title="Credit funds (recorded as profit)">
+                            <DollarSign size={14} /> Credit
+                          </button>
+                          <button className="admin-btn red" onClick={() => openDebit(u)} title="Debit funds (recorded as loss)">
+                            <Minus size={14} /> Debit
+                          </button>
+                        </>
                       )}
                     </div>
                   </td>
@@ -255,9 +307,9 @@ export default function AdminAccounts() {
           <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
-                <h3>Credit Funds</h3>
+                <h3>Credit Funds (Profit)</h3>
                 <p className="admin-modal-sub">
-                  Manually credit <strong>{depositFor.name}</strong> ({depositFor.email})
+                  Manually credit <strong>{depositFor.name}</strong> ({depositFor.email}) — recorded as <strong className="pos">profit</strong> in their P&L.
                 </p>
               </div>
               <button className="admin-btn ghost" onClick={() => !depBusy && setDepositFor(null)}>
@@ -293,7 +345,7 @@ export default function AdminAccounts() {
                 className="form-control"
                 value={depNote}
                 onChange={(e) => setDepNote(e.target.value)}
-                placeholder="e.g. Manual adjustment"
+                placeholder="e.g. Trading profit for the week"
                 disabled={depBusy}
               />
             </div>
@@ -301,7 +353,67 @@ export default function AdminAccounts() {
             <div className="admin-modal-actions">
               <button className="admin-btn" onClick={() => setDepositFor(null)} disabled={depBusy}>Cancel</button>
               <button className="admin-btn primary" onClick={submitDeposit} disabled={depBusy} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Plus size={16} /> {depBusy ? 'Crediting…' : 'Credit Funds'}
+                <Plus size={16} /> {depBusy ? 'Crediting…' : 'Credit as Profit'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual debit (loss) modal */}
+      {debitFor && (
+        <div className="admin-modal-backdrop" onClick={() => !debBusy && setDebitFor(null)}>
+          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <h3>Debit Funds (Loss)</h3>
+                <p className="admin-modal-sub">
+                  Manually debit <strong>{debitFor.name}</strong> ({debitFor.email}) — recorded as <strong className="neg">loss</strong> in their P&L.
+                  Balance: {formatCurrency(debitFor.balance)}
+                </p>
+              </div>
+              <button className="admin-btn ghost" onClick={() => !debBusy && setDebitFor(null)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {debErr && <div className="admin-msg err"><AlertCircle size={16} /> {debErr}</div>}
+
+            <div className="form-group">
+              <label>Coin</label>
+              <select className="form-control" value={debAsset} onChange={(e) => setDebAsset(e.target.value)} disabled={debBusy}>
+                {ASSETS.map((a) => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>Amount (USD)</label>
+              <input
+                className="form-control"
+                type="number"
+                min="0"
+                value={debAmount}
+                onChange={(e) => setDebAmount(e.target.value)}
+                placeholder="e.g. 2500"
+                disabled={debBusy}
+              />
+            </div>
+
+            <div className="form-group">
+              <label>Note (optional)</label>
+              <input
+                className="form-control"
+                value={debNote}
+                onChange={(e) => setDebNote(e.target.value)}
+                placeholder="e.g. Trading loss for the week"
+                disabled={debBusy}
+              />
+            </div>
+
+            <div className="admin-modal-actions">
+              <button className="admin-btn" onClick={() => setDebitFor(null)} disabled={debBusy}>Cancel</button>
+              <button className="admin-btn red" onClick={submitDebit} disabled={debBusy} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Minus size={16} /> {debBusy ? 'Debiting…' : 'Debit as Loss'}
               </button>
             </div>
           </div>

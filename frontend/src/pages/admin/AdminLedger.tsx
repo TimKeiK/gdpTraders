@@ -9,6 +9,8 @@ const TYPE_PILL: Record<string, string> = {
   trade: 'pill-purple',
   fee: 'pill-amber',
   interest: 'pill-gray',
+  profit: 'pill-green',
+  loss: 'pill-red',
 };
 
 export default function AdminLedger() {

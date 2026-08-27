@@ -46,8 +46,16 @@ function portfolioValue(ledger: LedgerEntry[], userId: string): number {
 
 function accountSummary(user: User, ledger: LedgerEntry[], txns: Transaction[]) {
   const userTxns = txns.filter((t) => t.userId === user.id);
+  const userLedger = ledger.filter((e) => e.userId === user.id);
   const deposits = userTxns.filter((t) => t.type === 'Deposit' && t.status === 'Completed').reduce((s, t) => s + t.amount, 0);
   const withdrawals = userTxns.filter((t) => t.type === 'Withdrawal' && t.status === 'Completed').reduce((s, t) => s + t.amount, 0);
+
+  // Admin-managed Profit & Loss (backend.md §4.4):
+  // - every admin CREDIT appends a 'profit' ledger entry (positive amount)
+  // - every admin DEBIT appends a 'loss' ledger entry (negative amount)
+  const totalProfit = userLedger.filter((e) => e.entryType === 'profit').reduce((s, e) => s + e.amount, 0);
+  const totalLoss = userLedger.filter((e) => e.entryType === 'loss').reduce((s, e) => s + Math.abs(e.amount), 0);
+
   const pendingWithdrawals = userTxns.filter((t) => t.type === 'Withdrawal' && t.status !== 'Completed');
   const processingDeposits = userTxns.filter((t) => t.type === 'Deposit' && t.status === 'Processing');
 
@@ -62,6 +70,9 @@ function accountSummary(user: User, ledger: LedgerEntry[], txns: Transaction[]) 
     balance: portfolioValue(ledger, user.id),
     deposits,
     withdrawals,
+    totalProfit,
+    totalLoss,
+    netPnl: totalProfit - totalLoss,
     pendingWithdrawals: pendingWithdrawals.map((t) => ({
       id: t.id,
       asset: t.asset,
@@ -109,6 +120,10 @@ router.get(
     const pendingWithdrawals = withdrawals.filter((t) => t.status === 'Pending');
     const processingDeposits = txns.filter((t) => t.type === 'Deposit' && t.status === 'Processing');
 
+    // Platform-wide Profit & Loss managed by admins (§4.4 ledger entry types).
+    const totalProfit = ledger.filter((e) => e.entryType === 'profit').reduce((s, e) => s + e.amount, 0);
+    const totalLoss = ledger.filter((e) => e.entryType === 'loss').reduce((s, e) => s + Math.abs(e.amount), 0);
+
     res.json({
       stats: {
         totalUsers: users.length,
@@ -116,6 +131,9 @@ router.get(
         staff: users.filter((u) => u.role !== 'client').length,
         pendingKyc: users.filter((u) => u.kycStatus !== 'APPROVED').length,
         totalAUM,
+        totalProfit,
+        totalLoss,
+        netPnl: totalProfit - totalLoss,
         completedDeposits,
         completedWithdrawals,
         fees,
@@ -205,7 +223,9 @@ router.post(
 /**
  * POST /api/admin/users/:id/deposit
  * Manually credit a client's account (admin control of funds).
- * Records a completed deposit and a ledger entry.
+ * An admin credit IS PROFIT: it records a completed deposit transaction
+ * AND appends a 'profit' entry to the append-only ledger so it shows up
+ * in the client's P&L (client portal) and the platform P&L (admin portal).
  * Body: { asset, amount, note? }
  */
 router.post(
@@ -232,15 +252,74 @@ router.post(
       type: 'Deposit',
       asset,
       amount,
-      strategy: note || 'Manual Admin Credit',
+      strategy: note || 'Profit credited by admin',
       status: 'Completed',
       txHash: `admin_${nanoid(12)}`,
     };
     await addTransaction(tx);
-    await appendLedgerEntry(id, asset, amount, 'deposit', txId);
-    await addAuditLog(id, 'ADMIN_DEPOSIT', `Admin credited ${amount} ${asset} (${txId}) by ${req.user!.email}`);
+    // Admin credit == PROFIT: append a 'profit' ledger entry (positive amount)
+    // so the client's P&L and the admin P&L dashboards reflect it.
+    await appendLedgerEntry(id, asset, amount, 'profit', txId);
+    await addAuditLog(id, 'ADMIN_CREDIT_PROFIT', `Admin credited ${amount} ${asset} as PROFIT (${txId}) by ${req.user!.email}`);
 
-    res.status(201).json({ transaction: tx, message: `Credited ${amount} ${asset} to ${user.email}` });
+    res.status(201).json({ transaction: tx, message: `Credited ${amount} ${asset} to ${user.email} (recorded as profit)` });
+  }
+);
+
+/**
+ * POST /api/admin/users/:id/debit
+ * Manually debit a client's account (admin control of funds).
+ * An admin debit IS LOSS: it records a completed withdrawal transaction
+ * AND appends a 'loss' entry (negative amount) to the append-only ledger
+ * so it reduces the client's balance and shows up as a loss in the P&L
+ * on both the client portal and the admin portal.
+ * Body: { asset, amount, note? }
+ */
+router.post(
+  '/users/:id/debit',
+  requireRole(...STAFF),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const id = String(req.params.id);
+    const { asset, amount, note } = req.body as { asset: string; amount: number; note?: string };
+    const user = await findUserById(id);
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+    if (!asset || !amount || amount <= 0) {
+      res.status(400).json({ error: 'A positive asset and amount are required' });
+      return;
+    }
+
+    // Never allow a debit that would push the balance negative.
+    const ledger = await getAllLedger();
+    const balance = portfolioValue(ledger, id);
+    if (amount > balance) {
+      res.status(400).json({
+        error: `Insufficient balance. Current balance: ${balance.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${asset}. Cannot debit more than the available balance.`,
+      });
+      return;
+    }
+
+    const txId = `TX-${nanoid(12)}`;
+    const tx: Transaction = {
+      id: txId,
+      userId: id,
+      date: new Date().toISOString(),
+      type: 'Withdrawal',
+      asset,
+      amount,
+      strategy: note || 'Loss debited by admin',
+      status: 'Completed',
+      txHash: `admin_${nanoid(12)}`,
+    };
+    await addTransaction(tx);
+    // Admin debit == LOSS: append a 'loss' ledger entry (negative amount)
+    // so the balance drops and the P&L on both portals reflects the loss.
+    await appendLedgerEntry(id, asset, -amount, 'loss', txId);
+    await addAuditLog(id, 'ADMIN_DEBIT_LOSS', `Admin debited ${amount} ${asset} as LOSS (${txId}) by ${req.user!.email}`);
+
+    res.status(201).json({ transaction: tx, message: `Debited ${amount} ${asset} from ${user.email} (recorded as loss)` });
   }
 );
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Wallet, Plus, ArrowUpRight, AlertCircle, BarChart3, Activity } from 'lucide-react';
+import { Wallet, Plus, ArrowUpRight, AlertCircle, BarChart3, Activity, TrendingUp, TrendingDown } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { api, formatCurrency, type PortfolioSummary, type StrategyAllocation } from '../../api/client';
 import './DashboardPages.css';
@@ -103,10 +103,24 @@ export default function OverviewPage() {
         </div>
         {summary && (
           <div className="card card-hover kpi-card">
+            <span className="kpi-icon"><TrendingUp size={20} /></span>
+            <span className="kpi-label">Total Profit</span>
+            <strong className="kpi-value pos">{formatCurrency(summary.totalProfit)}</strong>
+          </div>
+        )}
+        {summary && (
+          <div className="card card-hover kpi-card">
+            <span className="kpi-icon"><TrendingDown size={20} /></span>
+            <span className="kpi-label">Total Loss</span>
+            <strong className="kpi-value neg">{formatCurrency(-summary.totalLoss)}</strong>
+          </div>
+        )}
+        {summary && (
+          <div className="card card-hover kpi-card">
             <span className="kpi-icon"><Activity size={20} /></span>
             <span className="kpi-label">Total P&L</span>
             <strong className={`kpi-value ${summary.totalPnl >= 0 ? 'pos' : 'neg'}`}>
-              {formatCurrency(summary.totalPnl)}
+              {summary.totalPnl >= 0 ? '+' : ''}{formatCurrency(summary.totalPnl)}
             </strong>
           </div>
         )}

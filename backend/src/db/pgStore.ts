@@ -48,7 +48,7 @@ export async function ensureSchema(): Promise<void> {
 // ---------- Types (re-exported from database.ts) ----------
 export type KYCStatus = 'PENDING' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
 export type WalletType = 'hot' | 'warm' | 'cold';
-export type EntryType = 'deposit' | 'withdrawal' | 'trade' | 'fee' | 'interest';
+export type EntryType = 'deposit' | 'withdrawal' | 'trade' | 'fee' | 'interest' | 'profit' | 'loss';
 export type UserRole = 'client' | 'admin' | 'compliance';
 
 export interface User {

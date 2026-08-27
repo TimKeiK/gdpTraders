@@ -12,9 +12,29 @@ const API_BASE = '/api';
 export interface PortfolioSummary {
   totalValue: number;
   totalPnl: number;
+  totalProfit: number;
+  totalLoss: number;
+  netPnl: number;
   totalPnlPercent: number;
   todayPnl: number;
   todayPnlPercent: number;
+  lastUpdated: string;
+}
+
+/** Client-facing Profit & Loss statement (admin-managed credits/debits). */
+export interface PnlSummary {
+  totalProfit: number;
+  totalLoss: number;
+  netPnl: number;
+  netPnlPercent: number;
+  entries: {
+    id: string;
+    date: string;
+    kind: 'Profit' | 'Loss';
+    asset: string;
+    amount: number;
+    referenceId: string;
+  }[];
   lastUpdated: string;
 }
 
@@ -144,6 +164,11 @@ export const api = {
     return request<PortfolioSummary>('/portfolio/summary');
   },
 
+  /** Profit & Loss statement driven by admin-managed credits (profit) and debits (loss). */
+  async getPnl(): Promise<PnlSummary> {
+    return request<PnlSummary>('/portfolio/pnl');
+  },
+
   async getStrategyAllocations(): Promise<StrategyAllocation[]> {
     return request<StrategyAllocation[]>('/portfolio/allocations');
   },
@@ -221,6 +246,9 @@ export interface AdminUser {
   balance: number;
   deposits: number;
   withdrawals: number;
+  totalProfit: number;
+  totalLoss: number;
+  netPnl: number;
   pendingWithdrawals: { id: string; asset: string; amount: number; status: string; approvals: number }[];
   processingDeposits: number;
   transactionCount: number;
@@ -244,6 +272,9 @@ export interface AdminDashboard {
     staff: number;
     pendingKyc: number;
     totalAUM: number;
+    totalProfit: number;
+    totalLoss: number;
+    netPnl: number;
     completedDeposits: number;
     completedWithdrawals: number;
     fees: number;
@@ -324,6 +355,19 @@ export const adminApi = {
     note?: string,
   ): Promise<{ transaction: Transaction; message: string }> {
     return request<{ transaction: Transaction; message: string }>(`/admin/users/${userId}/deposit`, {
+      method: 'POST',
+      body: JSON.stringify({ asset, amount, note }),
+    });
+  },
+
+  /** Admin debit — recorded as a LOSS in the ledger and reflected in the client's P&L. */
+  async manualDebit(
+    userId: string,
+    asset: string,
+    amount: number,
+    note?: string,
+  ): Promise<{ transaction: Transaction; message: string }> {
+    return request<{ transaction: Transaction; message: string }>(`/admin/users/${userId}/debit`, {
       method: 'POST',
       body: JSON.stringify({ asset, amount, note }),
     });

@@ -9,6 +9,8 @@ import {
   DollarSign,
   Clock,
   Activity,
+  TrendingUp,
+  TrendingDown,
 } from 'lucide-react';
 import { adminApi, formatCurrency, type AdminDashboard } from '../../api/client';
 import './admin.css';
@@ -59,6 +61,24 @@ export default function AdminDashboard() {
             <div className="admin-kpi-label"><Users size={15} /> Total Users</div>
             <div className="admin-kpi-value">{s.totalUsers}</div>
             <div className="admin-kpi-sub">{s.clients} clients · {s.staff} staff</div>
+          </div>
+
+          <div className="admin-kpi green">
+            <div className="admin-kpi-label"><TrendingUp size={15} /> Total Profit</div>
+            <div className="admin-kpi-value">{formatCurrency(s.totalProfit, true)}</div>
+            <div className="admin-kpi-sub">admin credits</div>
+          </div>
+
+          <div className="admin-kpi red">
+            <div className="admin-kpi-label"><TrendingDown size={15} /> Total Loss</div>
+            <div className="admin-kpi-value">{formatCurrency(s.totalLoss, true)}</div>
+            <div className="admin-kpi-sub">admin debits</div>
+          </div>
+
+          <div className="admin-kpi gold">
+            <div className="admin-kpi-label"><Activity size={15} /> Net P&L</div>
+            <div className="admin-kpi-value">{formatCurrency(s.netPnl, true)}</div>
+            <div className="admin-kpi-sub">profit − loss</div>
           </div>
 
           <div className="admin-kpi gold">
