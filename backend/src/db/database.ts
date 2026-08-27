@@ -182,6 +182,15 @@ export function setKycStatus(userId: string, status: KYCStatus): void {
   if (user) user.kycStatus = status;
 }
 
+export function setUserRole(userId: string, role: UserRole): void {
+  const user = store.users.get(userId);
+  if (user) user.role = role;
+}
+
+export function getAllUsers(): User[] {
+  return [...store.users.values()];
+}
+
 export function addWallet(wallet: Wallet): void {
   store.wallets.set(wallet.id, wallet);
 }
@@ -208,6 +217,10 @@ export function getTransactionsForUser(userId: string): Transaction[] {
   return [...store.transactions.values()]
     .filter((t) => t.userId === userId)
     .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+export function getAllTransactions(): Transaction[] {
+  return [...store.transactions.values()].sort((a, b) => b.date.localeCompare(a.date));
 }
 
 export function addAllocations(userId: string, allocations: StrategyAllocation[]): void {

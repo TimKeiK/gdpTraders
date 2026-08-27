@@ -143,8 +143,8 @@ export default function DepositPage() {
     <>
       <h1 className="dash-title">Deposit Funds</h1>
       <p className="dash-last-updated" style={{ marginBottom: 28 }}>
-        Send the coin of your choice to our secure deposit address. Simply create a MetaMask wallet, buy
-        your coin, and transfer it to the address below — it is credited once the network confirms it.
+        Deposit directly from your existing crypto wallet. Choose a coin, send it to our secure deposit
+        address below, and it is credited to your account once the network confirms the transfer.
       </p>
 
       {!isKycApproved ? (
@@ -266,45 +266,42 @@ export default function DepositPage() {
           <div className="deposit-step-heading">
             <span className="deposit-step-number">2</span>
             <div>
-              <h3>Buy &amp; transfer your {asset}</h3>
-              <p>Follow these simple steps, then send your coins to the address below.</p>
+              <h3>Transfer your {asset}</h3>
+              <p>Send your {asset} from your wallet to the deposit address below.</p>
             </div>
           </div>
 
-          {/* Step-by-step guide */}
+          {/* Simple 3-step guide (client already has a wallet) */}
           <div className="deposit-guide">
             <div className="deposit-guide-step">
-              <span className="deposit-guide-num">A</span>
+              <span className="deposit-guide-num">1</span>
               <div>
-                <h4>1. Create a MetaMask wallet</h4>
+                <h4>Open your crypto wallet</h4>
                 <p>
-                  Visit <a href="https://metamask.io" target="_blank" rel="noreferrer">metamask.io</a>{' '}
-                  and install the browser extension or app. Create a new wallet and safely back up your
-                  secret recovery phrase. Keep it private — never share it with anyone.
+                  Open the wallet where your {asset} is held (MetaMask, Trust Wallet, Coinbase, or any
+                  other wallet you use).
                 </p>
               </div>
             </div>
 
             <div className="deposit-guide-step">
-              <span className="deposit-guide-num">B</span>
+              <span className="deposit-guide-num">2</span>
               <div>
-                <h4>2. Buy {asset} coins</h4>
+                <h4>Start a send to this address</h4>
                 <p>
-                  Inside MetaMask, tap <strong>Buy</strong> and choose a payment method to purchase{' '}
-                  {selectedAsset.label}. You can buy from a linked exchange or card provider. Make sure
-                  you're buying <strong>{asset}</strong>, not a different coin.
+                  Tap <strong>Send</strong> in your wallet, then copy the deposit address below and paste
+                  it as the recipient.
                 </p>
               </div>
             </div>
 
             <div className="deposit-guide-step">
-              <span className="deposit-guide-num">C</span>
+              <span className="deposit-guide-num">3</span>
               <div>
-                <h4>3. Transfer your {asset} to the deposit address</h4>
+                <h4>Pick the right network &amp; confirm</h4>
                 <p>
-                  In MetaMask, tap <strong>Send</strong>, paste the deposit address below, confirm the
-                  network is <strong>{selectedAsset.network}</strong>, enter the amount, and confirm the
-                  transaction.
+                  Confirm the network is <strong>{selectedAsset.network}</strong>, enter the amount you
+                  wish to deposit, and confirm the transaction in your wallet.
                 </p>
               </div>
             </div>

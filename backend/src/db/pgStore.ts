@@ -197,6 +197,15 @@ export async function setKycStatus(userId: string, status: KYCStatus): Promise<v
   await pool.query('UPDATE users SET kyc_status = $1 WHERE id = $2', [status, userId]);
 }
 
+export async function setUserRole(userId: string, role: UserRole): Promise<void> {
+  await pool.query('UPDATE users SET role = $1 WHERE id = $2', [role, userId]);
+}
+
+export async function getAllUsers(): Promise<User[]> {
+  const res = await pool.query('SELECT * FROM users');
+  return res.rows.map(mapUser);
+}
+
 function mapUser(row: any): User {
   return {
     id: row.id,
@@ -270,6 +279,11 @@ export async function getTransactionsForUser(userId: string): Promise<Transactio
     'SELECT * FROM transactions WHERE user_id = $1 ORDER BY date DESC',
     [userId]
   );
+  return res.rows.map(mapTransaction);
+}
+
+export async function getAllTransactions(): Promise<Transaction[]> {
+  const res = await pool.query('SELECT * FROM transactions ORDER BY date DESC');
   return res.rows.map(mapTransaction);
 }
 

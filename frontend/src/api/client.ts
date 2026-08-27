@@ -35,6 +35,9 @@ export interface Transaction {
   strategy: string;
   status: 'Completed' | 'Pending' | 'Processing';
   txHash: string;
+  requiresApproval?: boolean;
+  approval1?: boolean;
+  approval2?: boolean;
 }
 
 export interface PerformancePoint {
@@ -201,7 +204,148 @@ export const api = {
   },
 };
 
+// ---------- Admin types ----------
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  kycStatus: string;
+  createdAt: string;
+  withdrawalCap: number;
+  balance: number;
+  deposits: number;
+  withdrawals: number;
+  pendingWithdrawals: { id: string; asset: string; amount: number; status: string; approvals: number }[];
+  processingDeposits: number;
+  transactionCount: number;
+}
+
+export interface AdminTransaction extends Transaction {
+  userEmail: string;
+  userName: string;
+}
+
+export interface AdminDashboard {
+  stats: {
+    totalUsers: number;
+    clients: number;
+    staff: number;
+    pendingKyc: number;
+    totalAUM: number;
+    completedDeposits: number;
+    completedWithdrawals: number;
+    fees: number;
+    pendingWithdrawals: number;
+    pendingWithdrawalAmount: number;
+    processingDeposits: number;
+    transactionCount: number;
+    ledgerEntries: number;
+    auditCount: number;
+  };
+  recentTransactions: Transaction[];
+}
+
+export interface LedgerEntryView {
+  id: string;
+  userId: string;
+  asset: string;
+  amount: number;
+  entryType: string;
+  referenceId: string;
+  createdAt: string;
+  integrityHash: string;
+}
+
+export interface AuditLogEntryView {
+  id: string;
+  userId: string;
+  action: string;
+  details: string;
+  createdAt: string;
+}
+
+// ---------- Admin API ----------
+
+export const adminApi = {
+  async getDashboard(): Promise<AdminDashboard> {
+    return request<AdminDashboard>('/admin/dashboard');
+  },
+
+  async getUsers(): Promise<AdminUser[]> {
+    return request<AdminUser[]>('/admin/users');
+  },
+
+  async getTransactions(): Promise<AdminTransaction[]> {
+    return request<AdminTransaction[]>('/admin/transactions');
+  },
+
+  async getLedger(): Promise<LedgerEntryView[]> {
+    return request<LedgerEntryView[]>('/admin/ledger');
+  },
+
+  async verifyLedger(): Promise<{ valid: boolean; checked: number }> {
+    return request<{ valid: boolean; checked: number }>('/admin/ledger/verify');
+  },
+
+  async getAuditLogs(): Promise<AuditLogEntryView[]> {
+    return request<AuditLogEntryView[]>('/admin/audit-logs');
+  },
+
+  async setKyc(userId: string, status: string): Promise<{ userId: string; status: string }> {
+    return request<{ userId: string; status: string }>(`/admin/users/${userId}/kyc`, {
+      method: 'POST',
+      body: JSON.stringify({ status }),
+    });
+  },
+
+  async setRole(userId: string, role: string): Promise<{ userId: string; role: string }> {
+    return request<{ userId: string; role: string }>(`/admin/users/${userId}/role`, {
+      method: 'POST',
+      body: JSON.stringify({ role }),
+    });
+  },
+
+  async manualDeposit(
+    userId: string,
+    asset: string,
+    amount: number,
+    note?: string,
+  ): Promise<{ transaction: Transaction; message: string }> {
+    return request<{ transaction: Transaction; message: string }>(`/admin/users/${userId}/deposit`, {
+      method: 'POST',
+      body: JSON.stringify({ asset, amount, note }),
+    });
+  },
+
+  async confirmDeposit(txId: string, amount: number): Promise<{ transaction: Transaction; message: string }> {
+    return request<{ transaction: Transaction; message: string }>(`/admin/transactions/${txId}/confirm-deposit`, {
+      method: 'POST',
+      body: JSON.stringify({ amount }),
+    });
+  },
+
+  async denyDeposit(txId: string): Promise<{ transaction: Transaction; message: string }> {
+    return request<{ transaction: Transaction; message: string }>(`/admin/transactions/${txId}/deny-deposit`, {
+      method: 'POST',
+    });
+  },
+
+  // Withdrawal multi-sig approvals (existing wallet route)
+  async getWithdrawals(): Promise<Transaction[]> {
+    return request<Transaction[]>('/wallet/withdrawals');
+  },
+
+  async approveWithdrawal(txId: string): Promise<{ transaction: Transaction; message: string }> {
+    return request<{ transaction: Transaction; message: string }>(`/wallet/withdrawals/${txId}/approve`, {
+      method: 'POST',
+    });
+  },
+};
+
 // ---------- Formatters ----------
+
 
 export function formatCurrency(value: number, compact = false): string {
   return new Intl.NumberFormat('en-US', {

@@ -6,9 +6,11 @@ import './styles/index.css';
 // Auth
 import { AuthProvider } from './contexts/AuthContext';
 import AuthRoute from './components/AuthRoute';
+import AdminRoute from './components/AdminRoute';
 
 // Layout
 import Layout from './components/Layout';
+import AdminLayout from './components/admin/AdminLayout';
 
 // Marketing pages
 import HomePage from './pages/HomePage';
@@ -28,6 +30,15 @@ import TransactionsPage from './pages/dashboard/TransactionsPage';
 import SecurityPage from './pages/dashboard/SecurityPage';
 import TaxPage from './pages/dashboard/TaxPage';
 import SupportPage from './pages/dashboard/SupportPage';
+
+// Admin portal pages
+import AdminDashboard from './pages/admin/AdminDashboard';
+import AdminAccounts from './pages/admin/AdminAccounts';
+import AdminTransactions from './pages/admin/AdminTransactions';
+import AdminApprovals from './pages/admin/AdminApprovals';
+import AdminLedger from './pages/admin/AdminLedger';
+import AdminAuditLogs from './pages/admin/AdminAuditLogs';
+
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -55,6 +66,18 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="security" element={<SecurityPage />} />
               <Route path="tax" element={<TaxPage />} />
               <Route path="support" element={<SupportPage />} />
+            </Route>
+          </Route>
+
+          {/* Admin Portal — restricted to admin & compliance staff */}
+          <Route element={<AdminRoute />}>
+            <Route path="admin" element={<AdminLayout />}>
+              <Route index element={<AdminDashboard />} />
+              <Route path="accounts" element={<AdminAccounts />} />
+              <Route path="transactions" element={<AdminTransactions />} />
+              <Route path="approvals" element={<AdminApprovals />} />
+              <Route path="ledger" element={<AdminLedger />} />
+              <Route path="audit-logs" element={<AdminAuditLogs />} />
             </Route>
           </Route>
 
