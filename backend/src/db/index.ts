@@ -37,13 +37,19 @@ export const {
   findUserByEmail,
   findUserById,
   setKycStatus,
+<<<<<<< HEAD
   setEmailVerified,        // added
+=======
+  setUserRole,
+  getAllUsers,
+>>>>>>> 198d249b3b891883c4f3f576bb65bb415acd0581
   addWallet,
   getWalletsForUser,
   addDepositAddress,
   getDepositAddress,
   addTransaction,
   getTransactionsForUser,
+  getAllTransactions,
   addAllocations,
   getAllocations,
   addPerformance,
@@ -59,3 +65,13 @@ export const {
 } = store;
 
 export const dbMode = useInMemory ? 'in-memory' : 'postgresql';
+
+/**
+ * Runs idempotent schema migrations (PostgreSQL mode only).
+ * Safe to call at every startup; no-ops in in-memory mode.
+ */
+export async function ensureSchema(): Promise<void> {
+  if (!useInMemory) {
+    await pgStore.ensureSchema();
+  }
+}

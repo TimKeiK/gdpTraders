@@ -7,6 +7,7 @@ const statusClass: Record<Transaction['status'], string> = {
   Completed: 'status-completed',
   Pending: 'status-pending',
   Processing: 'status-processing',
+  Cancelled: 'status-failed',
 };
 
 export default function TransactionsPage() {
@@ -42,7 +43,6 @@ export default function TransactionsPage() {
                 <th>Type</th>
                 <th>Asset</th>
                 <th>Amount</th>
-                <th>Strategy</th>
                 <th>Status</th>
                 <th>Tx Hash</th>
               </tr>
@@ -57,7 +57,6 @@ export default function TransactionsPage() {
                   </td>
                   <td>{tx.asset}</td>
                   <td>{formatCurrency(tx.amount)}</td>
-                  <td>{tx.strategy}</td>
                   <td><span className={`status-badge ${statusClass[tx.status]}`}>{tx.status}</span></td>
                   <td className="txn-hash" title={tx.txHash}>{tx.txHash}</td>
                 </tr>

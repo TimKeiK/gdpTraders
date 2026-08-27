@@ -84,6 +84,11 @@
   color: var(--purple);
 }
 
+.status-failed {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--red);
+}
+
 .tx-type {
   font-weight: 600;
 }

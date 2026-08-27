@@ -1,34 +1,75 @@
 import { useState } from 'react';
-import { Bitcoin, ArrowRight, Copy, CheckCircle, AlertCircle, Info, ShieldCheck, FileCheck, ArrowLeft } from 'lucide-react';
-import { api, authApi, formatCurrency } from '../../api/client';
+import {
+  ArrowLeft,
+  AlertCircle,
+  CheckCircle,
+  ClipboardCopy,
+  Clock,
+  ExternalLink,
+  FileCheck,
+  Info,
+  Loader,
+  ShieldCheck,
+  Wallet,
+} from 'lucide-react';
+import { api, authApi } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import './DashboardPages.css';
+import './DepositPage.css';
 
 const SUPPORTED_ASSETS = [
-  { value: 'USDC', label: 'USDC (USD Coin)', icon: '◉' },
-  { value: 'USDT', label: 'USDT (Tether)', icon: '◉' },
-  { value: 'BTC', label: 'BTC (Bitcoin)', icon: '₿' },
-  { value: 'ETH', label: 'ETH (Ethereum)', icon: 'Ξ' },
+  {
+    value: 'USDT',
+    label: 'USDT (Tether)',
+    icon: '₮',
+    network: 'Tron (TRC-20)',
+    networkNote:
+      'Send USDT on the TRC-20 network. Sending on another network (e.g. ERC-20, BEP-20) WILL lose your funds.',
+  },
+  {
+    value: 'BTC',
+    label: 'BTC (Bitcoin)',
+    icon: '₿',
+    network: 'Bitcoin Network',
+    networkNote: 'Send BTC on the Bitcoin network. Sending on another network WILL lose your funds.',
+  },
+  {
+    value: 'ETH',
+    label: 'ETH (Ethereum)',
+    icon: 'Ξ',
+    network: 'Ethereum (ERC-20)',
+    networkNote:
+      'Send ETH on the Ethereum network. Sending on another network WILL lose your funds.',
+  },
 ];
+
+// These addresses match backend/src/routes/wallet.ts DEPOSIT_WALLET_ADDRESSES.
+const DEPOSIT_ADDRESSES: Record<string, string> = {
+  USDT: 'TUc2wxZTmfseu42idSDdhKDT35eyUiWwwp',
+  BTC: '0x69276bb6ccd6927ac2623a6b18601ce2d48efda3',
+  ETH: '0x69276bb6ccd6927ac2623a6b18601ce2d48efda3',
+};
 
 export default function DepositPage() {
   const { user, refreshProfile } = useAuth();
-  const [step, setStep] = useState<'form' | 'address'>('form');
-  const [amount, setAmount] = useState('');
-  const [asset, setAsset] = useState('USDC');
-  const [address, setAddress] = useState('');
-  const [txid, setTxid] = useState('');
-  
+  const [step, setStep] = useState<'select' | 'instructions' | 'sent'>('select');
+  const [asset, setAsset] = useState('USDT');
+
   // KYC states
   const [docType, setDocType] = useState('Passport');
   const [docNumber, setDocNumber] = useState('');
   const [kycLoading, setKycLoading] = useState(false);
   const [kycError, setKycError] = useState('');
-  
+
   // Deposit states
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+  const [txRef, setTxRef] = useState('');
+  const [amount, setAmount] = useState('');
+
+  const selectedAsset = SUPPORTED_ASSETS.find((a) => a.value === asset) ?? SUPPORTED_ASSETS[0];
+  const address = DEPOSIT_ADDRESSES[asset];
 
   const handleKycSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +81,7 @@ export default function DepositPage() {
     setKycError('');
     try {
       await authApi.submitKyc(docType, docNumber);
-      await refreshProfile(); // update user.kycStatus to 'APPROVED'
+      await refreshProfile();
     } catch (err) {
       setKycError(err instanceof Error ? err.message : 'KYC submission failed.');
     } finally {
@@ -48,38 +89,59 @@ export default function DepositPage() {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  /** Step 1 — choose the coin you want to deposit. */
+  const handleSelect = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!amount || Number(amount) < 1) {
-      setError('Please enter a valid deposit amount (minimum $1).');
+    if (!asset) {
+      setError('Please choose a coin to deposit.');
       return;
     }
+    const parsedAmount = Number(amount);
+    if (!amount || Number.isNaN(parsedAmount) || parsedAmount <= 0) {
+      setError('Please enter the amount you wish to deposit.');
+      return;
+    }
+    setError('');
+    setStep('instructions');
+  };
+
+  /** Copy the deposit address to the clipboard. */
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  /**
+   * Final step — the user has sent their coins. We record a pending deposit
+   * so our team knows to verify the on-chain transfer.
+   */
+  const handleMarkSent = async (e: React.FormEvent) => {
+    e.preventDefault();
     setLoading(true);
     setError('');
     try {
-      const res = await api.createDeposit(asset, Number(amount));
-      setAddress(res.depositAddress);
-      setTxid(res.transaction.id);
-      setStep('address');
+      const res = await api.submitCryptoDeposit(asset, Number(amount));
+      setTxRef(res.transaction.id);
+      setStep('sent');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Deposit request failed.');
+      setError(err instanceof Error ? err.message : 'Could not record your deposit. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(address);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   const reset = () => {
-    setStep('form');
+    setStep('select');
+    setAsset('USDT');
     setAmount('');
     setError('');
-    setAddress('');
-    setTxid('');
+    setCopied(false);
+    setTxRef('');
   };
 
   const isKycApproved = user?.kycStatus === 'APPROVED';
@@ -88,11 +150,12 @@ export default function DepositPage() {
     <>
       <h1 className="dash-title">Deposit Funds</h1>
       <p className="dash-last-updated" style={{ marginBottom: 28 }}>
-        Invest capital into GDPTraders. Select your target asset and amount to generate a unique funding address.
+        Deposit directly from your existing crypto wallet. Choose a coin, send it to our secure deposit
+        address below, and it is credited to your account once the network confirms the transfer.
       </p>
 
-      {/* Step 1: KYC Verification required */}
       {!isKycApproved ? (
+        /* KYC Verification required */
         <div className="card" style={{ maxWidth: '640px', margin: '0 auto', borderTop: '4px solid var(--purple)' }}>
           <div style={{ textAlign: 'center', marginBottom: 24 }}>
             <div style={{
@@ -104,13 +167,14 @@ export default function DepositPage() {
               borderRadius: '16px',
               background: 'rgba(139, 92, 246, 0.1)',
               color: 'var(--purple)',
-              marginBottom: 16
+              marginBottom: 16,
             }}>
               <ShieldCheck size={32} />
             </div>
             <h2 className="dash-section-title" style={{ fontSize: '20px', marginBottom: 8 }}>Identity Verification Required</h2>
             <p style={{ fontSize: '14px', color: 'var(--gray-400)', lineHeight: '1.6' }}>
-              To comply with global regulatory standards (KYC/AML), you must complete identity verification before making your first deposit. This process is instant.
+              To comply with global regulatory standards (KYC/AML), you must complete identity
+              verification before making your first deposit. This process is instant.
             </p>
           </div>
 
@@ -153,218 +217,244 @@ export default function DepositPage() {
                 'Verifying Identity...'
               ) : (
                 <>
-                  <FileCheck size={18} /> Verify Identity & Enable Deposits
+                  <FileCheck size={18} /> Verify Identity &amp; Enable Deposits
                 </>
               )}
             </button>
           </form>
         </div>
-      ) : (
-        /* Step 2: Deposit Flow (KYC is Approved) */
-        <div className="card" style={{ maxWidth: '680px', margin: '0 auto', position: 'relative' }}>
-          {step === 'form' ? (
-            <>
-              <div className="deposit-intro" style={{ marginBottom: 24, paddingBottom: 20, borderBottom: '1px solid var(--glass-border)' }}>
-                <div className="deposit-asset-badge" style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: '15px', color: 'var(--white)' }}>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: '38px',
-                    height: '38px',
-                    borderRadius: '10px',
-                    background: 'rgba(245, 197, 24, 0.12)',
-                    color: 'var(--gold)'
-                  }}>
-                    <Bitcoin size={20} />
-                  </div>
-                  <span>Select an asset and enter the amount you plan to deposit.</span>
-                </div>
-              </div>
+      ) : step === 'select' ? (
+        /* Step 1: Choose a coin */
+        <div className="card deposit-card">
+          <div className="deposit-step-heading">
+            <span className="deposit-step-number">1</span>
+            <div>
+              <h3>Which coin do you want to deposit?</h3>
+              <p>Choose the coin you'd like to send. You'll get the correct address and network next.</p>
+            </div>
+          </div>
 
-              <form onSubmit={handleSubmit} className="deposit-form">
-                <div className="form-group">
-                  <label>Select Deposit Asset</label>
-                  <select
-                    className="form-control"
-                    value={asset}
-                    onChange={(e) => setAsset(e.target.value)}
-                    disabled={loading}
-                    style={{ fontSize: '15px', height: '52px' }}
-                  >
-                    {SUPPORTED_ASSETS.map((a) => (
-                      <option key={a.value} value={a.value}>{a.label}</option>
-                    ))}
-                  </select>
-                </div>
+          <form onSubmit={handleSelect} className="deposit-form">
+            <div className="form-group">
+              <label>Select Deposit Coin</label>
+              <select
+                className="form-control"
+                value={asset}
+                onChange={(e) => setAsset(e.target.value)}
+                disabled={loading}
+                style={{ fontSize: '15px', height: '52px' }}
+              >
+                {SUPPORTED_ASSETS.map((a) => (
+                  <option key={a.value} value={a.value}>
+                    {a.icon}  {a.label} — {a.network}
+                  </option>
+                ))}
+              </select>
+              <p className="form-hint">
+                {selectedAsset.icon} {selectedAsset.label} will be sent via the{' '}
+                <strong>{selectedAsset.network}</strong>.
+              </p>
+            </div>
 
-                <div className="form-group">
-                  <label>Amount to Deposit (USD Equivalent)</label>
-                  <div className="deposit-amount-row" style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
-                    <span className="deposit-currency-prefix" style={{
-                      position: 'absolute',
-                      left: '20px',
-                      fontSize: '18px',
-                      fontWeight: 6,
-                      color: 'var(--gray-400)'
-                    }}>$</span>
-                    <input
-                      className="form-control"
-                      type="number"
-                      value={amount}
-                      onChange={(e) => setAmount(e.target.value)}
-                      placeholder="10,000"
-                      min="1"
-                      step="1"
-                      required
-                      disabled={loading}
-                      style={{ paddingLeft: '38px', paddingRight: '74px', fontSize: '18px', fontWeight: 6, height: '54px' }}
-                    />
-                    <span className="deposit-asset-tag" style={{
-                      position: 'absolute',
-                      right: '20px',
-                      fontWeight: 7,
-                      fontSize: '14px',
-                      color: 'var(--gold)',
-                      background: 'rgba(245, 197, 24, 0.1)',
-                      padding: '4px 10px',
-                      borderRadius: '6px'
-                    }}>{asset}</span>
-                  </div>
-                </div>
+            <div className="form-group">
+              <label>Deposit Amount (USD)</label>
+              <input
+                className="form-control"
+                type="number"
+                inputMode="decimal"
+                min="1"
+                step="any"
+                placeholder="e.g. 5,000"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                disabled={loading}
+                style={{ fontSize: '16px', height: '52px' }}
+              />
+              <p className="form-hint">
+                Enter how much you plan to deposit. This amount is used to verify your transfer and is
+                credited to your portfolio once the admin confirms it.
+              </p>
+            </div>
 
-                <div className="deposit-info-box" style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 10,
-                  background: 'rgba(255, 255, 255, 0.02)',
-                  border: '1px solid var(--glass-border)',
-                  borderRadius: '8px',
-                  padding: '14px 16px',
-                  fontSize: '13px',
-                  color: 'var(--gray-400)',
-                  marginBottom: 24,
-                  lineHeight: '1.5'
-                }}>
-                  <Info size={16} style={{ color: 'var(--purple)', flexShrink: 0, marginTop: 1 }} />
-                  <span>
-                    Minimum deposit is equivalent to $1. Blockchain transfers will credit to your account balance automatically after 1–2 network confirmations.
-                  </span>
-                </div>
+            {error && (
+              <p className="login-error" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16 }}>
+                <AlertCircle size={14} /> {error}
+              </p>
+            )}
 
-                {error && (
-                  <p className="login-error" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16 }}>
-                    <AlertCircle size={14} /> {error}
-                  </p>
-                )}
+            <button type="submit" className="btn btn-primary deposit-btn" style={{ width: '100%', justifyContent: 'center', padding: '14px', height: '50px' }}>
+              Get Deposit Address <Wallet size={16} />
+            </button>
+          </form>
+        </div>
+      ) : step === 'instructions' ? (
+        /* Step 2: Instructions + address */
+        <div className="card deposit-card">
+          <div className="deposit-step-heading">
+            <span className="deposit-step-number">2</span>
+            <div>
+              <h3>Transfer your {asset}</h3>
+              <p>Send your {asset} from your wallet to the deposit address below.</p>
+            </div>
+          </div>
 
-                <button type="submit" className="btn btn-primary deposit-btn" style={{ width: '100%', justifyContent: 'center', padding: '14px', height: '50px' }} disabled={loading}>
-                  {loading ? 'Generating Address...' : 'Generate Deposit Address'} <ArrowRight size={16} />
-                </button>
-              </form>
-            </>
-          ) : (
-            <div className="deposit-address-view" style={{ textAlign: 'center' }}>
-              <div className="deposit-success-header" style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 14,
-                textAlign: 'left',
-                marginBottom: 28,
-                paddingBottom: 20,
-                borderBottom: '1px solid var(--glass-border)'
-              }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: '46px',
-                  height: '46px',
-                  borderRadius: '50%',
-                  background: 'rgba(34, 197, 94, 0.12)',
-                  color: 'var(--green)'
-                }}>
-                  <CheckCircle size={26} />
-                </div>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 7 }}>Funding Address Ready</h3>
-                  <p style={{ fontSize: '13px', color: 'var(--gray-400)', margin: '2px 0 0 0' }}>
-                    Transaction reference: #{txid.slice(-8)} · Please send {formatCurrency(Number(amount))} in {asset}
-                  </p>
-                </div>
-              </div>
-
-              <div className="deposit-address-card" style={{
-                background: 'rgba(255,255,255,0.02)',
-                border: '1.5px dashed var(--glass-border)',
-                borderRadius: '12px',
-                padding: '24px',
-                marginBottom: 24,
-                textAlign: 'left'
-              }}>
-                <div className="deposit-address-label" style={{
-                  fontSize: '13px',
-                  color: 'var(--gray-400)',
-                  fontWeight: 6,
-                  marginBottom: 10
-                }}>
-                  Send {asset} directly to this unique address:
-                </div>
-                <div className="deposit-address-value" style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 12,
-                  background: 'var(--black)',
-                  border: '1px solid var(--glass-border)',
-                  padding: '12px 16px',
-                  borderRadius: '8px',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '14px',
-                  color: 'var(--white)',
-                  wordBreak: 'break-all'
-                }}>
-                  <span style={{ userSelect: 'all' }}>{address}</span>
-                  <button
-                    className={`btn btn-sm ${copied ? 'btn-primary' : 'btn-outline'}`}
-                    onClick={handleCopy}
-                    type="button"
-                    style={{ flexShrink: 0, minWidth: '40px', padding: '8px 12px' }}
-                  >
-                    {copied ? <CheckCircle size={14} /> : <Copy size={14} />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="deposit-info-box" style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 10,
-                background: 'rgba(255, 255, 255, 0.02)',
-                border: '1px solid var(--glass-border)',
-                borderRadius: '8px',
-                padding: '14px 16px',
-                fontSize: '13px',
-                color: 'var(--gray-400)',
-                marginBottom: 28,
-                textAlign: 'left',
-                lineHeight: '1.5'
-              }}>
-                <Info size={16} style={{ color: 'var(--gold)', flexShrink: 0, marginTop: 1 }} />
-                <span>
-                  <strong>Important Notice:</strong> Only send {asset} to this address. Sending any other asset will result in permanent loss of funds. Credits will clear automatically upon network confirmations.
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-                <button className="btn btn-outline" onClick={reset} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <ArrowLeft size={16} /> New Deposit
-                </button>
+          {/* Simple 3-step guide (client already has a wallet) */}
+          <div className="deposit-guide">
+            <div className="deposit-guide-step">
+              <span className="deposit-guide-num">1</span>
+              <div>
+                <h4>Open your crypto wallet</h4>
+                <p>
+                  Open the wallet where your {asset} is held (MetaMask, Trust Wallet, Coinbase, or any
+                  other wallet you use).
+                </p>
               </div>
             </div>
+
+            <div className="deposit-guide-step">
+              <span className="deposit-guide-num">2</span>
+              <div>
+                <h4>Start a send to this address</h4>
+                <p>
+                  Tap <strong>Send</strong> in your wallet, then copy the deposit address below and paste
+                  it as the recipient.
+                </p>
+              </div>
+            </div>
+
+            <div className="deposit-guide-step">
+              <span className="deposit-guide-num">3</span>
+              <div>
+                <h4>Pick the right network &amp; confirm</h4>
+                <p>
+                  Confirm the network is <strong>{selectedAsset.network}</strong>, enter the amount you
+                  wish to deposit, and confirm the transaction in your wallet.
+                </p>
+              </div>
+            </div>
+          </div>
+
+
+          {/* Deposit address */}
+          <div className="deposit-address-card">
+            <div className="deposit-address-label">
+              <Wallet size={14} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />
+              Deposit address for {asset}
+            </div>
+            <div className="deposit-address-value">
+              <span style={{ userSelect: 'all', wordBreak: 'break-all' }}>{address}</span>
+              <button
+                type="button"
+                className={`deposit-copy-btn${copied ? ' copied' : ''}`}
+                onClick={handleCopy}
+                title="Copy address"
+              >
+                {copied ? <CheckCircle size={16} /> : <ClipboardCopy size={16} />}
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <div className="deposit-address-network">
+              <Info size={14} />
+              Network: <strong>{selectedAsset.network}</strong>
+            </div>
+          </div>
+
+          {/* Network warning */}
+          <div className="deposit-warning">
+            <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>
+              <strong>Important:</strong> {selectedAsset.networkNote} Only send {asset} to this address.
+              Double-check the network before confirming your transfer.
+            </span>
+          </div>
+
+          {error && (
+            <p className="login-error" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16 }}>
+              <AlertCircle size={14} /> {error}
+            </p>
           )}
+
+          <div className="deposit-actions">
+            <button type="button" className="btn btn-outline" onClick={() => setStep('select')} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <ArrowLeft size={16} /> Back
+            </button>
+            <button type="button" className="btn btn-primary" onClick={handleMarkSent} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {loading ? <Loader size={16} className="spin" /> : <CheckCircle size={16} />}
+              {loading ? 'Recording...' : "I've Sent My Coins"}
+            </button>
+          </div>
+
+          <p className="deposit-post-send">
+            After transferring, tap <strong>"I've Sent My Coins"</strong>. We'll verify the transfer on
+            the blockchain and credit your account once it's confirmed (usually within minutes).
+          </p>
+        </div>
+      ) : (
+        /* Step 3: Sent confirmation */
+        <div className="deposit-address-view" style={{ maxWidth: '680px', margin: '0 auto' }}>
+          <div className="card deposit-card">
+            <div className="deposit-success-header" style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 14,
+              textAlign: 'left',
+              marginBottom: 24,
+              paddingBottom: 20,
+              borderBottom: '1px solid var(--glass-border)',
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '46px',
+                height: '46px',
+                borderRadius: '50%',
+                background: 'rgba(34, 197, 94, 0.12)',
+                color: 'var(--green)',
+              }}>
+                <CheckCircle size={26} />
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>Transfer Submitted</h3>
+                <p style={{ fontSize: '13px', color: 'var(--gray-400)', margin: '2px 0 0 0' }}>
+                  Your {asset} transfer has been recorded. We'll verify it on the blockchain shortly.
+                </p>
+              </div>
+            </div>
+
+            <div className="deposit-info-box" style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 10,
+              background: 'rgba(255, 255, 255, 0.02)',
+              border: '1px solid var(--glass-border)',
+              borderRadius: '8px',
+              padding: '14px 16px',
+              fontSize: '13px',
+              color: 'var(--gray-400)',
+              marginBottom: 20,
+              lineHeight: '1.5',
+            }}>
+              <Clock size={16} style={{ color: 'var(--gold)', flexShrink: 0, marginTop: 1 }} />
+              <span>
+                <strong>What happens next?</strong> Network confirmations usually take a few minutes.
+                Once confirmed, your {asset} is credited to your account and appears in your portfolio.
+                If you have questions, contact support with reference <strong>{txRef}</strong>.
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button className="btn btn-outline" onClick={reset} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <ArrowLeft size={16} /> New Deposit
+              </button>
+              <a className="btn btn-primary" href="/dashboard" style={{ display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none' }}>
+                <ExternalLink size={16} /> View Portfolio
+              </a>
+            </div>
+          </div>
         </div>
       )}
     </>
   );
 }
+

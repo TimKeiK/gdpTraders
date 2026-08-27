@@ -13,7 +13,7 @@ import { createHash } from 'crypto';
 
 export type KYCStatus = 'PENDING' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
 export type WalletType = 'hot' | 'warm' | 'cold';
-export type EntryType = 'deposit' | 'withdrawal' | 'trade' | 'fee' | 'interest';
+export type EntryType = 'deposit' | 'withdrawal' | 'trade' | 'fee' | 'interest' | 'profit' | 'loss';
 export type UserRole = 'client' | 'admin' | 'compliance';
 
 export interface User {
@@ -66,8 +66,9 @@ export interface Transaction {
   asset: string;
   amount: number;
   strategy: string;
-  status: 'Completed' | 'Pending' | 'Processing';
+  status: 'Completed' | 'Pending' | 'Processing' | 'Cancelled';
   txHash: string;
+  destinationAddress?: string;
   requiresApproval?: boolean;
   approval1?: boolean;
   approval2?: boolean;
@@ -184,12 +185,22 @@ export function setKycStatus(userId: string, status: KYCStatus): void {
   if (user) user.kycStatus = status;
 }
 
+<<<<<<< HEAD
 export function setEmailVerified(userId: string): void {
   const user = store.users.get(userId);
   if (user) {
     user.isEmailVerified = true;
     user.emailVerificationToken = null;
   }
+=======
+export function setUserRole(userId: string, role: UserRole): void {
+  const user = store.users.get(userId);
+  if (user) user.role = role;
+}
+
+export function getAllUsers(): User[] {
+  return [...store.users.values()];
+>>>>>>> 198d249b3b891883c4f3f576bb65bb415acd0581
 }
 
 export function addWallet(wallet: Wallet): void {
@@ -218,6 +229,10 @@ export function getTransactionsForUser(userId: string): Transaction[] {
   return [...store.transactions.values()]
     .filter((t) => t.userId === userId)
     .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+export function getAllTransactions(): Transaction[] {
+  return [...store.transactions.values()].sort((a, b) => b.date.localeCompare(a.date));
 }
 
 export function addAllocations(userId: string, allocations: StrategyAllocation[]): void {

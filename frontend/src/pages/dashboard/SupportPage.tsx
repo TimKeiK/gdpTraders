@@ -2,12 +2,6 @@ import { useState, type FormEvent } from 'react';
 import { Send, Lock, User, Clock } from 'lucide-react';
 import './DashboardPages.css';
 
-const cases = [
-  { title: 'European Family Office', text: 'Allocated 5% of portfolio to our Arbitrage Alpha strategy to hedge against equity market drawdowns.' },
-  { title: 'Southeast Asian HNW Individual', text: 'Migrated a legacy exchange-held allocation into cold storage custody with structured reporting.' },
-  { title: 'Middle Eastern Investment Firm', text: 'Deployed stablecoin treasury into DeFi Treasury for low-volatility yield on idle cash.' },
-];
-
 export default function SupportPage() {
   const [sent, setSent] = useState(false);
 
@@ -29,7 +23,7 @@ export default function SupportPage() {
         <div className="card kpi-card">
           <span className="kpi-icon"><Clock size={20} /></span>
           <span className="kpi-label">Response Time</span>
-          <strong className="kpi-value" style={{ fontSize: 18 }}>Within 2h</strong>
+          <strong className="kpi-value" style={{ fontSize: 18 }}>Within 1 hr</strong>
         </div>
         <div className="card kpi-card">
           <span className="kpi-icon"><Lock size={20} /></span>
@@ -42,7 +36,7 @@ export default function SupportPage() {
         <h2 className="dash-section-title">Send a Secure Message</h2>
         {sent ? (
           <div>
-            <p><strong>Message sent.</strong> Your Account Executive will respond within 2 business hours.</p>
+            <p><strong>Message sent.</strong> Your message has been sent to gdpsupport@gmail.com. Your Account Executive will respond within 1 hour.</p>
             <button className="btn btn-outline btn-sm mt-3" onClick={() => setSent(false)}>Send Another</button>
           </div>
         ) : (
@@ -60,23 +54,7 @@ export default function SupportPage() {
         )}
       </div>
 
-      <div className="card mt-3">
-        <h2 className="dash-section-title">Anonymized Case Studies</h2>
-        <p className="sec-sub" style={{ marginBottom: 16 }}>
-          Real allocations, anonymized with permission. Names and amounts withheld to protect client privacy.
-        </p>
-        <div className="support-cases">
-          {cases.map((c) => (
-            <div className="support-case" key={c.title}>
-              <span className="sec-icon"><User size={18} /></span>
-              <div>
-                <strong>{c.title}</strong>
-                <p>{c.text}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+
     </>
   );
 }

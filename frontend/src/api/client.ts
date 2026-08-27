@@ -12,9 +12,29 @@ const API_BASE = '/api';
 export interface PortfolioSummary {
   totalValue: number;
   totalPnl: number;
+  totalProfit: number;
+  totalLoss: number;
+  netPnl: number;
   totalPnlPercent: number;
   todayPnl: number;
   todayPnlPercent: number;
+  lastUpdated: string;
+}
+
+/** Client-facing Profit & Loss statement (admin-managed credits/debits). */
+export interface PnlSummary {
+  totalProfit: number;
+  totalLoss: number;
+  netPnl: number;
+  netPnlPercent: number;
+  entries: {
+    id: string;
+    date: string;
+    kind: 'Profit' | 'Loss';
+    asset: string;
+    amount: number;
+    referenceId: string;
+  }[];
   lastUpdated: string;
 }
 
@@ -33,8 +53,12 @@ export interface Transaction {
   asset: string;
   amount: number;
   strategy: string;
-  status: 'Completed' | 'Pending' | 'Processing';
+  status: 'Completed' | 'Pending' | 'Processing' | 'Cancelled';
   txHash: string;
+  destinationAddress?: string;
+  requiresApproval?: boolean;
+  approval1?: boolean;
+  approval2?: boolean;
 }
 
 export interface PerformancePoint {
@@ -140,6 +164,11 @@ export const api = {
     return request<PortfolioSummary>('/portfolio/summary');
   },
 
+  /** Profit & Loss statement driven by admin-managed credits (profit) and debits (loss). */
+  async getPnl(): Promise<PnlSummary> {
+    return request<PnlSummary>('/portfolio/pnl');
+  },
+
   async getStrategyAllocations(): Promise<StrategyAllocation[]> {
     return request<StrategyAllocation[]>('/portfolio/allocations');
   },
@@ -163,11 +192,35 @@ export const api = {
     return request<{ address: string; asset: string; isActive: boolean }[]>('/wallet/addresses');
   },
 
-  /** Creates a deposit request (KYC must be APPROVED). */
-  async createDeposit(asset: string, amount: number): Promise<{ depositAddress: string; transaction: Transaction }> {
-    return request<{ depositAddress: string; transaction: Transaction }>('/wallet/deposit', {
+  /** Get deposit wallet address for an asset. */
+  async getDepositWalletAddress(asset: string): Promise<{ asset: string; address: string }> {
+    return request<{ asset: string; address: string }>(`/wallet/deposit-address/${asset}`);
+  },
+
+  /** Records a crypto transfer submitted by the user (manual wallet deposit). */
+  async submitCryptoDeposit(
+    asset: string,
+    amount: number
+  ): Promise<{ transaction: Transaction; message: string }> {
+    return request<{ transaction: Transaction; message: string }>('/wallet/crypto-deposit', {
       method: 'POST',
       body: JSON.stringify({ asset, amount }),
+    });
+  },
+
+  /** Creates a Stripe payment intent for card deposit. */
+  async createCardDeposit(asset: string, amount: number): Promise<{ clientSecret: string; paymentIntentId: string; amount: number; asset: string; depositAddress: string }> {
+    return request<{ clientSecret: string; paymentIntentId: string; amount: number; asset: string; depositAddress: string }>('/wallet/deposit', {
+      method: 'POST',
+      body: JSON.stringify({ asset, amount }),
+    });
+  },
+
+  /** Confirms a card deposit after Stripe payment succeeds. */
+  async confirmCardDeposit(paymentIntentId: string, asset: string, amount: number): Promise<{ transaction: Transaction; message: string }> {
+    return request<{ transaction: Transaction; message: string }>('/wallet/deposit-confirm', {
+      method: 'POST',
+      body: JSON.stringify({ paymentIntentId, asset, amount }),
     });
   },
 
@@ -180,7 +233,173 @@ export const api = {
   },
 };
 
+// ---------- Admin types ----------
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  kycStatus: string;
+  createdAt: string;
+  withdrawalCap: number;
+  balance: number;
+  deposits: number;
+  withdrawals: number;
+  totalProfit: number;
+  totalLoss: number;
+  netPnl: number;
+  pendingWithdrawals: { id: string; asset: string; amount: number; status: string; approvals: number }[];
+  processingDeposits: number;
+  transactionCount: number;
+}
+
+export interface AdminTransaction extends Transaction {
+  userEmail: string;
+  userName: string;
+}
+
+/** A withdrawal request as seen in the admin Approvals page (with client identity). */
+export interface WithdrawalRequestView extends Transaction {
+  userEmail: string;
+  userName: string;
+}
+
+export interface AdminDashboard {
+  stats: {
+    totalUsers: number;
+    clients: number;
+    staff: number;
+    pendingKyc: number;
+    totalAUM: number;
+    totalProfit: number;
+    totalLoss: number;
+    netPnl: number;
+    completedDeposits: number;
+    completedWithdrawals: number;
+    fees: number;
+    pendingWithdrawals: number;
+    pendingWithdrawalAmount: number;
+    processingDeposits: number;
+    transactionCount: number;
+    ledgerEntries: number;
+    auditCount: number;
+  };
+  recentTransactions: Transaction[];
+}
+
+export interface LedgerEntryView {
+  id: string;
+  userId: string;
+  asset: string;
+  amount: number;
+  entryType: string;
+  referenceId: string;
+  createdAt: string;
+  integrityHash: string;
+}
+
+export interface AuditLogEntryView {
+  id: string;
+  userId: string;
+  action: string;
+  details: string;
+  createdAt: string;
+}
+
+// ---------- Admin API ----------
+
+export const adminApi = {
+  async getDashboard(): Promise<AdminDashboard> {
+    return request<AdminDashboard>('/admin/dashboard');
+  },
+
+  async getUsers(): Promise<AdminUser[]> {
+    return request<AdminUser[]>('/admin/users');
+  },
+
+  async getTransactions(): Promise<AdminTransaction[]> {
+    return request<AdminTransaction[]>('/admin/transactions');
+  },
+
+  async getLedger(): Promise<LedgerEntryView[]> {
+    return request<LedgerEntryView[]>('/admin/ledger');
+  },
+
+  async verifyLedger(): Promise<{ valid: boolean; checked: number }> {
+    return request<{ valid: boolean; checked: number }>('/admin/ledger/verify');
+  },
+
+  async getAuditLogs(): Promise<AuditLogEntryView[]> {
+    return request<AuditLogEntryView[]>('/admin/audit-logs');
+  },
+
+  async setKyc(userId: string, status: string): Promise<{ userId: string; status: string }> {
+    return request<{ userId: string; status: string }>(`/admin/users/${userId}/kyc`, {
+      method: 'POST',
+      body: JSON.stringify({ status }),
+    });
+  },
+
+  async setRole(userId: string, role: string): Promise<{ userId: string; role: string }> {
+    return request<{ userId: string; role: string }>(`/admin/users/${userId}/role`, {
+      method: 'POST',
+      body: JSON.stringify({ role }),
+    });
+  },
+
+  async manualDeposit(
+    userId: string,
+    asset: string,
+    amount: number,
+    note?: string,
+  ): Promise<{ transaction: Transaction; message: string }> {
+    return request<{ transaction: Transaction; message: string }>(`/admin/users/${userId}/deposit`, {
+      method: 'POST',
+      body: JSON.stringify({ asset, amount, note }),
+    });
+  },
+
+  /** Admin debit — recorded as a LOSS in the ledger and reflected in the client's P&L. */
+  async manualDebit(
+    userId: string,
+    asset: string,
+    amount: number,
+    note?: string,
+  ): Promise<{ transaction: Transaction; message: string }> {
+    return request<{ transaction: Transaction; message: string }>(`/admin/users/${userId}/debit`, {
+      method: 'POST',
+      body: JSON.stringify({ asset, amount, note }),
+    });
+  },
+
+  async confirmDeposit(txId: string, amount: number): Promise<{ transaction: Transaction; message: string }> {
+    return request<{ transaction: Transaction; message: string }>(`/admin/transactions/${txId}/confirm-deposit`, {
+      method: 'POST',
+      body: JSON.stringify({ amount }),
+    });
+  },
+
+  async denyDeposit(txId: string): Promise<{ transaction: Transaction; message: string }> {
+    return request<{ transaction: Transaction; message: string }>(`/admin/transactions/${txId}/deny-deposit`, {
+      method: 'POST',
+    });
+  },
+
+  // Withdrawal multi-sig approvals (existing wallet route)
+  async getWithdrawals(): Promise<WithdrawalRequestView[]> {
+    return request<WithdrawalRequestView[]>('/wallet/withdrawals');
+  },
+
+  async approveWithdrawal(txId: string): Promise<{ transaction: Transaction; message: string }> {
+    return request<{ transaction: Transaction; message: string }>(`/wallet/withdrawals/${txId}/approve`, {
+      method: 'POST',
+    });
+  },
+};
+
 // ---------- Formatters ----------
+
 
 export function formatCurrency(value: number, compact = false): string {
   return new Intl.NumberFormat('en-US', {

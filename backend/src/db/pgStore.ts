@@ -16,10 +16,39 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgres://gdptrader:password@localhost:5432/gdptraders',
 });
 
+/**
+ * Idempotent schema migrations that run at every startup.
+ *
+ * schema.sql is only executed by Postgres when its data volume is FIRST
+ * initialized. For any database created before newer columns were added
+ * (e.g. transactions.destination_address), these ALTERs self-heal the
+ * drift so inserts/queries never fail with "column does not exist".
+ */
+export async function ensureSchema(): Promise<void> {
+  await pool.query(
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS destination_address VARCHAR(255)`
+  );
+
+  // Data-correctness normalization: a Withdrawal is only truly "Completed"
+  // once its ledger deduction exists. Any withdrawal stuck at 'Processing'
+  // whose funds were already deducted (ledger entry present) must read
+  // 'Completed' so the client-facing status matches the portfolio math.
+  await pool.query(
+    `UPDATE transactions t
+     SET status = 'Completed'
+     WHERE t.type = 'Withdrawal'
+       AND t.status = 'Processing'
+       AND EXISTS (
+         SELECT 1 FROM ledger_entries l
+         WHERE l.reference_id = t.id AND l.entry_type = 'withdrawal'
+       )`
+  );
+}
+
 // ---------- Types (re-exported from database.ts) ----------
 export type KYCStatus = 'PENDING' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
 export type WalletType = 'hot' | 'warm' | 'cold';
-export type EntryType = 'deposit' | 'withdrawal' | 'trade' | 'fee' | 'interest';
+export type EntryType = 'deposit' | 'withdrawal' | 'trade' | 'fee' | 'interest' | 'profit' | 'loss';
 export type UserRole = 'client' | 'admin' | 'compliance';
 
 export interface User {
@@ -72,8 +101,9 @@ export interface Transaction {
   asset: string;
   amount: number;
   strategy: string;
-  status: 'Completed' | 'Pending' | 'Processing';
+  status: 'Completed' | 'Pending' | 'Processing' | 'Cancelled';
   txHash: string;
+  destinationAddress?: string;
   requiresApproval?: boolean;
   approval1?: boolean;
   approval2?: boolean;
@@ -198,11 +228,21 @@ export async function setKycStatus(userId: string, status: KYCStatus): Promise<v
   await pool.query('UPDATE users SET kyc_status = $1 WHERE id = $2', [status, userId]);
 }
 
+<<<<<<< HEAD
 export async function setEmailVerified(userId: string): Promise<void> {
   await pool.query(
     'UPDATE users SET is_email_verified = true, email_verification_token = NULL WHERE id = $1',
     [userId]
   );
+=======
+export async function setUserRole(userId: string, role: UserRole): Promise<void> {
+  await pool.query('UPDATE users SET role = $1 WHERE id = $2', [role, userId]);
+}
+
+export async function getAllUsers(): Promise<User[]> {
+  const res = await pool.query('SELECT * FROM users');
+  return res.rows.map(mapUser);
+>>>>>>> 198d249b3b891883c4f3f576bb65bb415acd0581
 }
 
 function mapUser(row: any): User {
@@ -267,11 +307,22 @@ export async function getDepositAddress(userId: string, asset: string): Promise<
 
 export async function addTransaction(tx: Transaction): Promise<void> {
   await pool.query(
-    `INSERT INTO transactions (id, user_id, date, type, asset, amount, strategy, status, tx_hash, requires_approval, approval1, approval2)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-     ON CONFLICT (id) DO NOTHING`,
+    `INSERT INTO transactions (id, user_id, date, type, asset, amount, strategy, status, tx_hash, destination_address, requires_approval, approval1, approval2)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+     ON CONFLICT (id) DO UPDATE SET
+       date = EXCLUDED.date,
+       type = EXCLUDED.type,
+       asset = EXCLUDED.asset,
+       amount = EXCLUDED.amount,
+       strategy = EXCLUDED.strategy,
+       status = EXCLUDED.status,
+       tx_hash = EXCLUDED.tx_hash,
+       destination_address = EXCLUDED.destination_address,
+       requires_approval = EXCLUDED.requires_approval,
+       approval1 = EXCLUDED.approval1,
+       approval2 = EXCLUDED.approval2`,
     [tx.id, tx.userId, tx.date, tx.type, tx.asset, tx.amount, tx.strategy, tx.status,
-     tx.txHash, tx.requiresApproval ?? false, tx.approval1 ?? false, tx.approval2 ?? false]
+     tx.txHash, tx.destinationAddress ?? null, tx.requiresApproval ?? false, tx.approval1 ?? false, tx.approval2 ?? false]
   );
 }
 
@@ -280,6 +331,11 @@ export async function getTransactionsForUser(userId: string): Promise<Transactio
     'SELECT * FROM transactions WHERE user_id = $1 ORDER BY date DESC',
     [userId]
   );
+  return res.rows.map(mapTransaction);
+}
+
+export async function getAllTransactions(): Promise<Transaction[]> {
+  const res = await pool.query('SELECT * FROM transactions ORDER BY date DESC');
   return res.rows.map(mapTransaction);
 }
 
@@ -294,6 +350,7 @@ function mapTransaction(r: any): Transaction {
     strategy: r.strategy,
     status: r.status,
     txHash: r.tx_hash,
+    destinationAddress: r.destination_address ?? undefined,
     requiresApproval: r.requires_approval,
     approval1: r.approval1,
     approval2: r.approval2,

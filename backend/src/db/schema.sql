@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS ledger_entries (
     user_id VARCHAR(50) NOT NULL,
     asset VARCHAR(10) NOT NULL,
     amount NUMERIC(20, 8) NOT NULL,
-    entry_type VARCHAR(20) NOT NULL, -- deposit, withdrawal, trade, fee, interest
+    entry_type VARCHAR(20) NOT NULL, -- deposit, withdrawal, trade, fee, interest, profit, loss
     reference_id VARCHAR(255),
     created_at TIMESTAMP DEFAULT NOW(),
     integrity_hash TEXT NOT NULL -- SHA-256 of row + previous hash
@@ -59,10 +59,14 @@ CREATE TABLE IF NOT EXISTS transactions (
     strategy VARCHAR(255),
     status VARCHAR(20) NOT NULL DEFAULT 'Processing',
     tx_hash VARCHAR(255),
+    destination_address VARCHAR(255),
     requires_approval BOOLEAN DEFAULT false,
     approval1 BOOLEAN DEFAULT false,
     approval2 BOOLEAN DEFAULT false
 );
+
+-- Migration for databases created before the destination_address column existed
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS destination_address VARCHAR(255);
 
 -- Strategy allocations
 CREATE TABLE IF NOT EXISTS strategy_allocations (
