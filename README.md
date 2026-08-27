@@ -62,9 +62,11 @@ npm run dev
 
 | Role | Email | Password | Sees |
 |------|-------|----------|------|
-| Client | `demo@gdptraders.io` | `DemoPass123!` | `/dashboard` |
-| Admin | `admin@gdptraders.io` | `AdminPass123!` | `/admin` |
-| Compliance | `compliance@gdptraders.io` | `CompliancePass123!` | `/admin` |
+| Admin | `admin@gdptraders.io` | `gdpAdmin#` | `/admin` |
+| Compliance | `compliance@gdptraders.io` | `gdpCompliance#` | `/admin` |
+
+> **Note:** The database seeds staff accounts only — no demo client exists. Create
+> a client account via the sign-up page (`/signup`) to use the client portal.
 
 Access is enforced on both ends: an `AdminRoute` guard in the frontend plus `requireRole('admin','compliance')` middleware on every admin API endpoint.
 
