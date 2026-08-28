@@ -76,6 +76,9 @@ router.post('/register', async (req: Request, res: Response) => {
     };
     await addUser(user);
 
+    // Send the email, but never fail the registration because of it — the
+    // account is already persisted and can be verified later (resend flow).
+    let emailSent = true;
     try {
       await sendVerificationEmail({
         to: normalizedEmail,
@@ -83,15 +86,21 @@ router.post('/register', async (req: Request, res: Response) => {
         verificationLink,
       });
     } catch (emailError) {
-      // Don't leave an un-verifiable account behind if the email fails.
-      try { await removeUser(user.id); } catch { /* best effort */ }
-      throw emailError;
+      emailSent = false;
+      console.error(
+        `[register] Verification email could not be sent to ${normalizedEmail}. ` +
+          `Account created anyway; verification link: ${verificationLink}`,
+        emailError
+      );
     }
 
     await addAuditLog(user.id, 'ACCOUNT_CREATED', `User registered with email ${user.email}`);
 
     res.status(201).json({
-      message: 'Registered. Please check your email to verify your account before logging in.',
+      message: emailSent
+        ? 'Registered. Please check your email to verify your account before logging in.'
+        : 'Registered, but the verification email could not be sent. Please contact support to verify your account.',
+      emailSent,
       user: {
         id: user.id,
         email: user.email,
