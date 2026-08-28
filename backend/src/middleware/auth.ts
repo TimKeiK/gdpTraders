@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { findUserById, type User } from '../db/index.js';
+import { config } from '../config.js';
 
 export interface AuthenticatedRequest extends Request {
   user?: User;
@@ -8,10 +9,10 @@ export interface AuthenticatedRequest extends Request {
   userRole?: string;
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'gdptraders_dev_secret_change_me_in_production';
+const JWT_SECRET = config.jwtSecret;
 
 export function generateToken(user: User): string {
-  const expiresIn = (process.env.JWT_EXPIRES_IN || '1h') as jwt.SignOptions['expiresIn'];
+  const expiresIn = config.jwtExpiresIn as jwt.SignOptions['expiresIn'];
   return jwt.sign(
     { sub: user.id, email: user.email, role: user.role },
     JWT_SECRET,

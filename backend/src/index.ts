@@ -13,15 +13,37 @@ import kycRoutes from './routes/kyc.js';
 import walletRoutes from './routes/wallet.js';
 import adminRoutes from './routes/admin.js';
 import strategiesRoutes from './routes/strategies.js';
+import marketRoutes from './routes/market.js';
+import { config } from './config.js';
+import { rateLimit } from './middleware/rateLimit.js';
 
 const app = express();
-const PORT = parseInt(process.env.PORT || '8000', 10);
+const PORT = config.port;
+
+const defaultOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:80',
+];
+const corsOrigins = config.corsOrigins.length > 0 ? config.corsOrigins : defaultOrigins;
 
 // ---------- Security middleware (backend.md §5) ----------
 app.use(helmet()); // Security headers, TLS-friendly defaults
-app.use(cors({ origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:80'] }));
+app.use(
+  cors({
+    origin: corsOrigins,
+    credentials: true,
+  })
+);
+app.set('trust proxy', 1); // Respect X-Forwarded-For behind the reverse proxy
 app.use(express.json({ limit: '1mb' }));
-app.use(morgan('dev'));
+app.use(morgan(config.isProd ? 'combined' : 'dev'));
+
+// Strict per-IP throttle for credential endpoints (brute-force protection).
+const authLimiter = rateLimit({ max: 10, windowMs: 60_000, key: 'auth' });
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+
 
 // Simple rate limiting (backend.md §5.1: daily withdrawal caps, IP protections)
 const rateBuckets = new Map<string, { count: number; resetAt: number }>();
@@ -60,6 +82,7 @@ app.use('/api/kyc', kycRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/admin', adminRoutes); // /api/admin/*
 app.use('/api/strategies', strategiesRoutes); // Public strategy products
+app.use('/api/market', marketRoutes); // Public cached market data proxy
 
 // ---------- 404 ----------
 app.use((_req: Request, res: Response) => {

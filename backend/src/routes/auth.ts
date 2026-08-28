@@ -13,13 +13,14 @@ import {
 } from '../db/index.js';
 import { generateToken, requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 import { sendVerificationEmail } from '../lib/email.js';
+import { config } from '../config.js';
 
 const router = Router();
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
-const JWT_SECRET = process.env.JWT_SECRET || 'gdptraders_dev_secret_change_me_in_production';
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const JWT_SECRET = config.jwtSecret;
+const FRONTEND_URL = config.frontendUrl;
 
 /**
  * POST /api/auth/register

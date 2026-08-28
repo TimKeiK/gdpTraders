@@ -17,7 +17,7 @@ Two portals share one backend:
                            │ /api (proxied)
 ┌──────────────────────────▼──────────────────────────────────┐
 │  Backend (Node.js + Express)  →  http://localhost:8000      │
-│  Auth · KYC · Wallet · Ledger · Portfolio · Admin           │
+│  Auth · KYC · Wallet · Ledger · Portfolio · Admin · Market   │
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────┐
@@ -63,6 +63,49 @@ cd frontend
 npm install
 npm run dev
 ```
+
+## Tests & CI
+
+The backend has a real test suite (Node's built-in test runner via `tsx`):
+
+```bash
+cd backend
+npm test        # coin whitelist, OHLC parser, TTL cache, rate limiter, config helpers
+npm run build   # tsc type-check + emit
+```
+
+GitHub Actions CI (`.github/workflows/ci.yml`) runs backend build + tests and the
+frontend production build on every push to `main` and every pull request.
+
+## Configuration & Security
+
+Environment variables (root `.env`, copied from `.env.example`):
+
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `JWT_SECRET` | **Yes (prod)** | Must be ≥ 32 chars. The backend **fails fast at boot in production** if it is missing, still the known dev default, or too short. |
+| `JWT_EXPIRES_IN` | No | Token lifetime (default `1h`). |
+| `FRONTEND_URL` | No | Used to build email-verification links. |
+| `CORS_ORIGINS` | No | Comma-separated allowlist; falls back to the local dev origins. |
+| `RESEND_API_KEY` | Prod | Outbound verification emails. Without it, dev mode logs the link to the console. |
+| `COINGECKO_API_KEY` | No | Optional CoinGecko key sent as `x-cg-demo-api-key` by the market proxy. |
+
+Hardening in place:
+
+- **Helmet** security headers; CORS allowlist; JSON body limit; `trust proxy`.
+- **Rate limiting** — global per-IP limiter plus a strict 10 req/min throttle on
+  `POST /api/auth/login` and `POST /api/auth/register` (brute-force protection).
+- **Central config** (`backend/src/config.ts`) — no scattered secret fallbacks.
+- Secrets are **never committed**; `.env` files are gitignored.
+
+## Live Market Data
+
+The dashboard's interactive candlestick chart (BTC / ETH / USDT switcher,
+24H / 7D / 30D ranges, crosshair tooltips, 30s auto-refresh) is powered by a
+**backend market proxy** with a coin whitelist and TTL caching — the browser
+never calls CoinGecko directly, which keeps the platform safe from upstream
+rate limits. Add an optional `COINGECKO_API_KEY` to raise upstream limits.
+
 
 ## Demo Credentials
 
@@ -122,7 +165,8 @@ A live E2E reconciliation verified: deposit approval credits the portfolio by ex
 - Multi-sig withdrawals (Admin + Compliance approval required)
 - Per-network destination-address validation on withdrawals
 - Idempotent schema migrations self-heal deployed databases at startup
-- Rate limiting (120 req/min per IP)
+- Rate limiting — 120 req/min per IP globally, plus a strict 10 req/min throttle
+  on login/register (see Configuration & Security)
 - Daily withdrawal caps per user
 - Helmet + CORS security headers
 
@@ -132,8 +176,10 @@ A live E2E reconciliation verified: deposit approval credits the portfolio by ex
 ├── backend/                  # Node.js/TypeScript API
 │   ├── src/
 │   │   ├── db/               # Dual-mode store: pgStore.ts (PostgreSQL) + database.ts (in-memory)
-│   │   ├── routes/           # auth, kyc, wallet, portfolio, strategies, admin
-│   │   ├── middleware/       # Auth, role, KYC middleware
+│   │   ├── routes/           # auth, kyc, wallet, portfolio, strategies, admin, market
+│   │   ├── lib/              # email.ts (Resend), market.ts (CoinGecko proxy + cache + tests)
+│   │   ├── config.ts         # Central validated config (fails fast on bad secrets in prod)
+│   │   ├── middleware/       # Auth, role, KYC, rate-limit middleware
 │   │   └── data/             # Strategy definitions
 │   ├── Dockerfile
 │   └── package.json
@@ -143,6 +189,7 @@ A live E2E reconciliation verified: deposit approval credits the portfolio by ex
 │   │   ├── pages/dashboard/  # Client portal (incl. DepositPage, WithdrawPage)
 │   │   ├── pages/admin/      # Staff portal (Dashboard, Accounts, Transactions, Approvals, Ledger, AuditLogs)
 │   │   ├── components/admin/ # AdminLayout (crimson "command center" theme)
+│   │   ├── components/       # Shared UI (CandlestickChart, PasswordInput)
 │   │   └── contexts/         # AuthContext
 │   ├── Dockerfile
 │   └── nginx.conf
@@ -153,7 +200,7 @@ A live E2E reconciliation verified: deposit approval credits the portfolio by ex
 
 | Route | Page |
 |-------|------|
-| `/dashboard` | Overview — KPIs, allocations chart, performance |
+| `/dashboard` | Overview — KPIs + interactive live candlestick chart (BTC/ETH/USDT switcher, 24H/7D/30D ranges, crosshair tooltips, 30s auto-refresh) |
 | `/dashboard/deposit` | Step-by-step crypto deposit guide with copyable addresses |
 | `/dashboard/withdraw` | Withdrawal request form + request history |
 | `/dashboard/transactions` | Personal transaction history |
@@ -197,6 +244,11 @@ POST   /api/wallet/withdrawals/:id/approve  # multi-sig, executes at 2/2
 
 GET    /api/strategies
 GET    /api/strategies/:id
+
+# ---- Market data (public, cached proxy; coin whitelist: bitcoin, ethereum, tether) ----
+GET    /api/market/coins                          # supported coins for the chart selector
+GET    /api/market/summary?coin=bitcoin           # price + 24h change
+GET    /api/market/ohlc?coin=bitcoin&range=24h    # OHLC candles; range: 24h | 7d | 30d
 
 # ---- Admin / compliance (role-gated) ----
 GET    /api/admin/dashboard                       # KPIs incl. AUM, pending KYC & approvals

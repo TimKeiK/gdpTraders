@@ -1,71 +1,96 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Wallet, Plus, ArrowUpRight, AlertCircle, BarChart3, Activity, TrendingUp, TrendingDown } from 'lucide-react';
+import { Wallet, Plus, ArrowUpRight, AlertCircle, Activity, TrendingUp, TrendingDown, BarChart3, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { api, formatCurrency, type PortfolioSummary, type StrategyAllocation } from '../../api/client';
+import { api, formatCurrency, formatPercent, type PortfolioSummary } from '../../api/client';
+import CandlestickChart, { type Candle } from '../../components/CandlestickChart';
 import './DashboardPages.css';
+
+type RangeKey = '1D' | '7D' | '30D';
+
+const RANGES: { key: RangeKey; label: string; range: '24h' | '7d' | '30d'; timeFormat: 'time' | 'date'; sub: string }[] = [
+  { key: '1D', label: '24H', range: '24h', timeFormat: 'time', sub: 'Hourly candlesticks' },
+  { key: '7D', label: '7D', range: '7d', timeFormat: 'date', sub: '4-hour candlesticks' },
+  { key: '30D', label: '30D', range: '30d', timeFormat: 'date', sub: 'Daily candlesticks' },
+];
+
+const CHART_COINS = [
+  { id: 'bitcoin', label: 'BTC', name: 'Bitcoin' },
+  { id: 'ethereum', label: 'ETH', name: 'Ethereum' },
+  { id: 'tether', label: 'USDT', name: 'Tether' },
+] as const;
+
+type ChartCoinId = (typeof CHART_COINS)[number]['id'];
 
 export default function OverviewPage() {
   const [summary, setSummary] = useState<PortfolioSummary | null>(null);
-  const [allocations, setAllocations] = useState<StrategyAllocation[]>([]);
-  const [usdtPrice, setUsdtPrice] = useState<number | null>(null);
-  const [usdtChange24h, setUsdtChange24h] = useState<number | null>(null);
-  const [usdtChartData, setUsdtChartData] = useState<Array<{ time: string; price: number }>>([]);
+  const [coinId, setCoinId] = useState<ChartCoinId>('bitcoin');
+  const [coinPrice, setCoinPrice] = useState<number | null>(null);
+  const [coinChange24h, setCoinChange24h] = useState<number | null>(null);
+  const [candles, setCandles] = useState<Candle[]>([]);
+  const [range, setRange] = useState<RangeKey>('1D');
+  const [chartLoading, setChartLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [chartError, setChartError] = useState('');
   const [loadError, setLoadError] = useState('');
   const { user } = useAuth();
 
+  const activeRange = RANGES.find((r) => r.key === range)!;
+  const activeCoin = CHART_COINS.find((c) => c.id === coinId)!;
+
+  // Portfolio summary (backend API).
   useEffect(() => {
     let mounted = true;
-    Promise.all([api.getPortfolioSummary(), api.getStrategyAllocations()])
-      .then(([s, a]) => {
-        if (mounted) {
-          setSummary(s);
-          setAllocations(a);
-          setLoadError('');
-        }
-      })
-      .catch((err) => {
-        if (mounted) {
-          setLoadError(err instanceof Error ? err.message : 'Failed to load portfolio data.');
-        }
-      });
+    api.getPortfolioSummary().then((s) => {
+      if (mounted) setSummary(s);
+    }).catch((err) => {
+      if (mounted) setLoadError(err instanceof Error ? err.message : 'Failed to load portfolio data.');
+    });
     return () => { mounted = false; };
   }, []);
 
-  // Fetch USDT price and historical data from CoinGecko API (free, no auth required)
-  useEffect(() => {
-    const fetchUsdtData = async () => {
-      try {
-        // Fetch current price and 24h change
-        const priceRes = await fetch(
-          'https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=usd&include_24hr_change=true'
-        );
-        const priceData = await priceRes.json();
-        if (priceData.tether) {
-          setUsdtPrice(priceData.tether.usd);
-          setUsdtChange24h(priceData.tether.usd_24h_change);
-        }
+  // Live price + OHLC candlesticks via the backend market proxy
+  // (cached, rate-limit safe), refreshed every 30s for a real-time feel.
+  const fetchMarket = useCallback(async () => {
+    try {
+      const [summaryRes, ohlcRes] = await Promise.all([
+        fetch(`/api/market/summary?coin=${coinId}`),
+        fetch(`/api/market/ohlc?coin=${coinId}&range=${activeRange.range}`),
+      ]);
 
-        // Fetch 24h historical data for chart
-        const chartRes = await fetch(
-          'https://api.coingecko.com/api/v3/coins/tether/market_chart?vs_currency=usd&days=1&interval=hourly'
-        );
-        const chartDataRaw = await chartRes.json();
-        if (chartDataRaw.prices) {
-          const chartPoints = chartDataRaw.prices.map((p: [number, number]) => ({
-            time: new Date(p[0]).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-            price: p[1],
-          }));
-          setUsdtChartData(chartPoints);
-        }
-      } catch (err) {
-        console.error('Failed to fetch USDT data:', err);
+      if (summaryRes.ok) {
+        const data = await summaryRes.json();
+        setCoinPrice(data.priceUsd);
+        setCoinChange24h(data.change24h);
       }
+
+      if (ohlcRes.ok) {
+        const data = await ohlcRes.json();
+        const parsed: Candle[] = Array.isArray(data.candles) ? data.candles : [];
+        if (parsed.length) setCandles(parsed);
+        setChartError('');
+      } else {
+        setChartError('Unable to load live chart. Retrying…');
+      }
+      setLastUpdated(new Date());
+    } catch (err) {
+      console.error('Chart fetch failed:', err);
+      setChartError('Unable to load live chart. Retrying…');
+    } finally {
+      setChartLoading(false);
+    }
+  }, [coinId, activeRange.range]);
+
+  useEffect(() => {
+    let cancel = false;
+    const run = () => {
+      if (!cancel) fetchMarket();
     };
-    fetchUsdtData();
-    const interval = setInterval(fetchUsdtData, 60000); // Update every 60 seconds
-    return () => clearInterval(interval);
-  }, []);
+    setChartLoading(true);
+    run();
+    const id = setInterval(run, 30000); // refresh every 30s for a real-time feel
+    return () => { cancel = true; clearInterval(id); };
+  }, [fetchMarket]);
 
   const firstName = user?.name?.split(' ')[0] || user?.email?.split('@')[0] || 'Investor';
 
@@ -126,118 +151,86 @@ export default function OverviewPage() {
         )}
       </div>
 
-      {/* Live USDT Trading Chart */}
-      <div className="card mt-3">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+      {/* Live Market Candlestick Chart */}
+      <div className="card mt-3 chart-card-wrap">
+        <div className="chart-card-head">
           <div>
-            <h2 className="dash-section-title" style={{ marginBottom: 4 }}>Tether (USDT) - Live Price Chart</h2>
-            <p style={{ fontSize: 12, color: 'var(--gray-400)', margin: 0 }}>24-hour price movement</p>
+            <div className="chart-title-row">
+              <h2 className="dash-section-title" style={{ marginBottom: 6 }}>
+                {activeCoin.name} ({activeCoin.label}) — Live Price Chart
+              </h2>
+              <span className="live-badge"><span className="live-dot" /> LIVE</span>
+            </div>
+            <p style={{ fontSize: 12.5, color: 'var(--gray-400)', margin: 0 }}>{activeRange.sub}</p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            {usdtPrice && (
-              <div style={{ textAlign: 'right' }}>
-                <strong style={{ fontSize: 18 }}>{formatCurrency(usdtPrice)}</strong>
+
+          <div className="chart-card-controls">
+            <div className="range-switch" role="group" aria-label="Select coin">
+              {CHART_COINS.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={`range-btn ${coinId === c.id ? 'active' : ''}`}
+                  onClick={() => setCoinId(c.id)}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+            <div className="range-switch" role="group" aria-label="Select range">
+              {RANGES.map((r) => (
+                <button
+                  key={r.key}
+                  type="button"
+                  className={`range-btn ${range === r.key ? 'active' : ''}`}
+                  onClick={() => setRange(r.key)}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+            {coinPrice && (
+              <div style={{ textAlign: 'right', minWidth: 120 }}>
+                <strong className="chart-price">{formatCurrency(coinPrice)}</strong>
                 <p style={{ fontSize: 12, color: 'var(--gray-400)', margin: '4px 0 0 0' }}>
-                  <span className={usdtChange24h && usdtChange24h >= 0 ? 'pos' : 'neg'}>
-                    {usdtChange24h ? `${usdtChange24h >= 0 ? '+' : ''}${usdtChange24h.toFixed(2)}%` : '—'}
-                  </span>
-                  {' '}24h
+                  <span className={coinChange24h != null && coinChange24h >= 0 ? 'pos' : 'neg'}>
+                    {formatPercent(coinChange24h)}
+                  </span>{' '}24h
                 </p>
               </div>
             )}
           </div>
         </div>
-        {usdtChartData.length > 0 ? (
-          <div style={{ height: 280, backgroundColor: 'rgba(139, 92, 246, 0.03)', borderRadius: 8, padding: 16, position: 'relative', overflow: 'hidden' }}>
-            <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0 }} viewBox={`0 0 ${Math.max(usdtChartData.length * 8, 400)} 280`} preserveAspectRatio="none">
-              {usdtChartData.length > 0 && (
-                <>
-                  {/* Generate candlesticks from hourly data */}
-                  {usdtChartData.map((d, i) => {
-                    const minPrice = Math.min(...usdtChartData.map(x => x.price));
-                    const maxPrice = Math.max(...usdtChartData.map(x => x.price));
-                    const range = maxPrice - minPrice || 1;
-                    const candleWidth = Math.max(2, 6);
-                    const spacing = 8;
-                    const x = i * spacing;
-                    const open = d.price;
-                    const close = i < usdtChartData.length - 1 ? usdtChartData[i + 1].price : d.price;
-                    const high = Math.max(open, close);
-                    const low = Math.min(open, close);
-                    const highY = 260 - ((high - minPrice) / range) * 260;
-                    const lowY = 260 - ((low - minPrice) / range) * 260;
-                    const openY = 260 - ((open - minPrice) / range) * 260;
-                    const closeY = 260 - ((close - minPrice) / range) * 260;
-                    const isGreen = close >= open;
-                    const color = isGreen ? 'rgba(16, 185, 129, 0.7)' : 'rgba(239, 68, 68, 0.7)';
-                    const bodyColor = isGreen ? 'rgba(16, 185, 129, 0.9)' : 'rgba(239, 68, 68, 0.9)';
 
-                    return (
-                      <g key={i}>
-                        {/* Wick (high-low line) */}
-                        <line x1={x + candleWidth / 2} y1={highY} x2={x + candleWidth / 2} y2={lowY} stroke={color} strokeWidth="1" vectorEffect="non-scaling-stroke" />
-                        {/* Body (open-close rectangle) */}
-                        <rect
-                          x={x}
-                          y={Math.min(openY, closeY)}
-                          width={candleWidth}
-                          height={Math.abs(closeY - openY) || 1}
-                          fill={bodyColor}
-                          stroke={bodyColor}
-                          strokeWidth="0.5"
-                          vectorEffect="non-scaling-stroke"
-                        />
-                      </g>
-                    );
-                  })}
-                </>
-              )}
-            </svg>
-            <div style={{ display: 'flex', justifyContent: 'space-between', position: 'relative', zIndex: 1, paddingTop: 240, fontSize: 11, color: 'var(--gray-500)' }}>
-              <span>{usdtChartData[0]?.time}</span>
-              <span>{usdtChartData[Math.floor(usdtChartData.length / 2)]?.time}</span>
-              <span>{usdtChartData[usdtChartData.length - 1]?.time}</span>
-            </div>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 280, backgroundColor: 'rgba(139, 92, 246, 0.05)', borderRadius: 8, padding: 20 }}>
-            <div style={{ textAlign: 'center', color: 'var(--gray-400)' }}>
-              <BarChart3 size={32} style={{ marginBottom: 8, opacity: 0.5 }} />
-              <p>Loading USDT live trading chart...</p>
-            </div>
+        {chartError && !candles.length && (
+          <div className="chart-empty" style={{ minHeight: 320 }}>
+            <BarChart3 size={30} style={{ opacity: 0.5, marginBottom: 8 }} />
+            <p>{chartError}</p>
+            <button type="button" className="btn btn-outline" style={{ marginTop: 12 }} onClick={() => fetchMarket()}>
+              <RefreshCw size={15} /> Retry
+            </button>
           </div>
         )}
-      </div>
 
-      {/* Allocations */}
-      <div className="card mt-3">
-        <h2 className="dash-section-title">Live Strategy Allocations</h2>
-        <p style={{ fontSize: 13, color: 'var(--gray-400)', marginBottom: 16 }}>Real-time allocations from your portfolio database</p>
-        {allocations && allocations.length > 0 ? (
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Strategy</th>
-                <th>Allocation (USD)</th>
-                <th>Weight</th>
-                <th>24h P&L</th>
-              </tr>
-            </thead>
-            <tbody>
-              {allocations.map((a) => (
-                <tr key={a.strategyId}>
-                  <td><strong>{a.strategyName}</strong></td>
-                  <td>{formatCurrency(a.allocation)}</td>
-                  <td>{a.weight.toFixed(1)}%</td>
-                  <td className={a.pnl24h >= 0 ? 'pos' : 'neg'}>
-                    {a.pnl24h >= 0 ? '+' : ''}{formatCurrency(a.pnl24h)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <div className="chart-loading">No active strategy allocations</div>
+        {!chartError && chartLoading && candles.length === 0 && !lastUpdated && (
+          <div className="chart-empty" style={{ minHeight: 320 }}>
+            <div className="chart-spinner" />
+            <p style={{ marginTop: 12 }}>Loading live {activeCoin.label} chart…</p>
+          </div>
+        )}
+
+        {candles.length > 0 && (
+          <>
+            <CandlestickChart candles={candles} height={340} timeFormat={activeRange.timeFormat} />
+            <div className="chart-footer">
+              <span>
+                {lastUpdated
+                  ? `Updated ${lastUpdated.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
+                  : 'Updating…'}
+              </span>
+              <span>Hover any candle for details · Auto-refreshes every 30s</span>
+            </div>
+          </>
         )}
       </div>
     </>
