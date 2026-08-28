@@ -185,14 +185,14 @@ export function setKycStatus(userId: string, status: KYCStatus): void {
   if (user) user.kycStatus = status;
 }
 
-<<<<<<< HEAD
 export function setEmailVerified(userId: string): void {
   const user = store.users.get(userId);
   if (user) {
     user.isEmailVerified = true;
     user.emailVerificationToken = null;
   }
-=======
+}
+
 export function setUserRole(userId: string, role: UserRole): void {
   const user = store.users.get(userId);
   if (user) user.role = role;
@@ -200,7 +200,6 @@ export function setUserRole(userId: string, role: UserRole): void {
 
 export function getAllUsers(): User[] {
   return [...store.users.values()];
->>>>>>> 198d249b3b891883c4f3f576bb65bb415acd0581
 }
 
 export function addWallet(wallet: Wallet): void {

@@ -228,13 +228,13 @@ export async function setKycStatus(userId: string, status: KYCStatus): Promise<v
   await pool.query('UPDATE users SET kyc_status = $1 WHERE id = $2', [status, userId]);
 }
 
-<<<<<<< HEAD
 export async function setEmailVerified(userId: string): Promise<void> {
   await pool.query(
     'UPDATE users SET is_email_verified = true, email_verification_token = NULL WHERE id = $1',
     [userId]
   );
-=======
+}
+
 export async function setUserRole(userId: string, role: UserRole): Promise<void> {
   await pool.query('UPDATE users SET role = $1 WHERE id = $2', [role, userId]);
 }
@@ -242,7 +242,6 @@ export async function setUserRole(userId: string, role: UserRole): Promise<void>
 export async function getAllUsers(): Promise<User[]> {
   const res = await pool.query('SELECT * FROM users');
   return res.rows.map(mapUser);
->>>>>>> 198d249b3b891883c4f3f576bb65bb415acd0581
 }
 
 function mapUser(row: any): User {

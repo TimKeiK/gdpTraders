@@ -37,12 +37,9 @@ export const {
   findUserByEmail,
   findUserById,
   setKycStatus,
-<<<<<<< HEAD
-  setEmailVerified,        // added
-=======
+  setEmailVerified,
   setUserRole,
   getAllUsers,
->>>>>>> 198d249b3b891883c4f3f576bb65bb415acd0581
   addWallet,
   getWalletsForUser,
   addDepositAddress,

@@ -6,7 +6,6 @@ import './LoginPage.css';
 
 type Status = 'verifying' | 'success' | 'already-verified' | 'error' | 'missing-token';
 
-// Backend runs on port 8000 (see backend/src/index.ts) — not 5000.
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export default function VerifyEmailPage() {
@@ -15,7 +14,7 @@ export default function VerifyEmailPage() {
 
   const [status, setStatus] = useState<Status>('verifying');
   const [message, setMessage] = useState('');
-  const hasRun = useRef(false); // guards against React StrictMode double-invoking effects
+  const hasRun = useRef(false);
 
   useEffect(() => {
     if (hasRun.current) return;
@@ -43,9 +42,6 @@ export default function VerifyEmailPage() {
           return;
         }
 
-        // Backend sends { message: 'Email already verified' } for repeat clicks,
-        // and { message: 'Email verified successfully! ...' } for a fresh verification.
-        // We key off the message text since there's no separate boolean flag.
         if (data?.message === 'Email already verified') {
           setStatus('already-verified');
         } else {

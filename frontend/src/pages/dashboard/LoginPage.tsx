@@ -15,8 +15,9 @@ export default function LoginPage() {
   const [pendingRedirect, setPendingRedirect] = useState<string | null>(null);
 
   // Check if redirected from signup page
-  const fromSignup = location.state as { registered?: boolean } | null;
+  const fromSignup = location.state as { registered?: boolean; needsVerification?: boolean } | null;
   const showSuccess = fromSignup?.registered;
+  const needsVerification = fromSignup?.needsVerification;
 
   useEffect(() => {
     if (pendingRedirect && isAuthenticated) {
@@ -60,7 +61,9 @@ export default function LoginPage() {
         {showSuccess && (
           <p className="login-success">
             <CheckCircle size={14} style={{ verticalAlign: '-2px', marginRight: 6 }} />
-            Your account has been created! Please sign in with your new credentials.
+            {needsVerification
+              ? 'Account created! Please check your email and click the verification link before signing in.'
+              : 'Your account has been created! Please sign in with your new credentials.'}
           </p>
         )}
 

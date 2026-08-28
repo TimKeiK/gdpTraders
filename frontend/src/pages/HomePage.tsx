@@ -35,7 +35,6 @@ const dashboardFeatures = [
   { icon: Users, title: 'Due Diligence', text: 'Full PM bios and track records shared securely under NDA during onboarding.' },
 ];
 
-<<<<<<< HEAD
 // TODO: Replace placeholder answers with content you can actually stand behind
 // and substantiate (regulatory filings, named/verifiable custodian, audited
 // performance data, etc.) before this goes live.
@@ -65,7 +64,7 @@ const faqs = [
     a: 'No. We partner with regulated, institutional-grade third-party custodians to ensure strict segregation of client funds and operational security. Formal custody, execution, and legal infrastructure partners will be named publicly here on the website once all contracts are formally executed and confirmed in writing—a process we prioritize for full regulatory transparency.'
   }
 ];
-=======
+
 /**
  * Stagger utility: inline custom property consumed by the reveal transition.
  */
@@ -100,7 +99,6 @@ function useScrollReveal(deps: unknown[]) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 }
->>>>>>> 198d249b3b891883c4f3f576bb65bb415acd0581
 
 function HeroSection() {
   return (

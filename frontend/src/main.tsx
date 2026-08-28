@@ -23,6 +23,7 @@ import WhitePaperPage from './pages/WhitePaperPage';
 // Dashboard pages
 import LoginPage from './pages/dashboard/LoginPage';
 import SignUpPage from './pages/dashboard/SignUpPage';
+import VerifyEmailPage from './pages/dashboard/VerifyEmailPage';
 import DashboardLayout from './components/dashboard/DashboardLayout';
 import OverviewPage from './pages/dashboard/OverviewPage';
 import PnlPage from './pages/dashboard/PnlPage';
@@ -58,6 +59,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 
           <Route path="login" element={<LoginPage />} />
           <Route path="signup" element={<SignUpPage />} />
+          <Route path="verify-email" element={<VerifyEmailPage />} />
 
           {/* Protected dashboard routes — requires authenticated session */}
           <Route element={<AuthRoute />}>

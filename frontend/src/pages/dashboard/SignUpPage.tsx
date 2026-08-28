@@ -32,7 +32,7 @@ export default function SignUpPage() {
     try {
       await authApi.register(email, password, name);
       authApi.logout();
-      navigate('/login', { state: { registered: true } });
+      navigate('/login', { state: { registered: true, needsVerification: true } });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign up failed. Please try again.');
     } finally {
