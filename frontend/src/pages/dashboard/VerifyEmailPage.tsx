@@ -6,7 +6,9 @@ import './LoginPage.css';
 
 type Status = 'verifying' | 'success' | 'already-verified' | 'error' | 'missing-token';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Relative path — same as src/api/client.ts. On Vercel, /api/* is rewritten
+// to the Render backend (vercel.json); in dev, vite.config.ts proxies it.
+const API_BASE_URL = '/api';
 
 export default function VerifyEmailPage() {
   const [searchParams] = useSearchParams();
