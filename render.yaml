@@ -1,0 +1,31 @@
+services:
+  # GDPTraders backend API — deploys from the backend/ folder
+  - type: web
+    name: gdptraders-api
+    runtime: node
+    plan: free # upgrade to 'starter' for zero cold-starts in production
+    rootDir: backend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true # redeploys on every push to the connected branch
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: USE_IN_MEMORY_DB
+        value: "false"
+      # --- Secrets: set these in the Render dashboard (never commit real values) ---
+      - key: DATABASE_URL
+        sync: false # Supabase connection string (Session pooler, port 5432, sslmode=require)
+      - key: JWT_SECRET
+        generateValue: true # Render generates a strong 64-char secret
+      - key: JWT_EXPIRES_IN
+        value: 1h
+      - key: FRONTEND_URL
+        sync: false # e.g. https://gdptraders.vercel.app
+      - key: CORS_ORIGINS
+        sync: false # e.g. https://gdptraders.vercel.app
+      - key: RESEND_API_KEY
+        sync: false
+      - key: COINGECKO_API_KEY
+        sync: false
