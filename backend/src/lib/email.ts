@@ -9,7 +9,11 @@ const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.join(__dirname, '../../../.env') });
 
-export const resend = new Resend(process.env.RESEND_API_KEY);
+// Create the Resend client lazily. When no RESEND_API_KEY is configured the
+// app still boots and `sendVerificationEmail` degrades to a logged no-op —
+// mirroring how the Stripe deposit flow runs in MOCK mode without a key.
+const apiKey = process.env.RESEND_API_KEY?.trim();
+export const resend: Resend | null = apiKey ? new Resend(apiKey) : null;
 
 interface SendVerificationEmailParams {
   to: string;
@@ -22,6 +26,16 @@ export async function sendVerificationEmail({
   username,
   verificationLink,
 }: SendVerificationEmailParams) {
+  // No Resend API key configured — emit a verification link to the console so
+  // signup still works in local / mock deployments.
+  if (!resend) {
+    console.log(
+      `[email] No RESEND_API_KEY configured; skipping send to ${to}.\n` +
+        `  Verification link: ${verificationLink}`
+    );
+    return undefined;
+  }
+
   try {
     const { data, error } = await resend.emails.send({
       from: 'GDPTraders <onboarding@resend.dev>',

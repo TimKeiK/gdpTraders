@@ -29,6 +29,14 @@ export async function ensureSchema(): Promise<void> {
     `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS destination_address VARCHAR(255)`
   );
 
+  // Email-verification columns (added in the "email verification" change).
+  await pool.query(
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_email_verified BOOLEAN DEFAULT FALSE`
+  );
+  await pool.query(
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token VARCHAR(255)`
+  );
+
   // Data-correctness normalization: a Withdrawal is only truly "Completed"
   // once its ledger deduction exists. Any withdrawal stuck at 'Processing'
   // whose funds were already deducted (ledger entry present) must read

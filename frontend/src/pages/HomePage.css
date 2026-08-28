@@ -136,11 +136,6 @@
 }
 
 /* ============ PROOF BAR ============ */
-.proof-bar {
-  background: var(--bg-elevated);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 20px 0;
-}
 
 .proof-bar-inner {
   display: flex;
@@ -240,6 +235,7 @@
   padding: 1px;
   background: linear-gradient(135deg, rgba(139, 92, 246, 0.4), rgba(245, 197, 24, 0.4));
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
   pointer-events: none;
@@ -312,6 +308,97 @@
   font-size: 14px;
   font-weight: 600;
   color: var(--gold);
+}
+
+/* ============ DEPOSIT PLANS ============ */
+.deposit-plans-section {
+  background: transparent;
+}
+
+.deposit-plans-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 24px;
+  margin-top: 40px;
+}
+
+.deposit-plan-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 28px 22px;
+}
+
+.deposit-plan-rank {
+  font-size: 34px;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+
+.deposit-plan-name {
+  font-size: 18px;
+  letter-spacing: 0.02em;
+}
+
+.deposit-plan-accrual {
+  margin: 12px 0 6px;
+}
+
+.deposit-plan-accrual-value {
+  display: block;
+  font-size: 42px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--gold);
+}
+
+.deposit-plan-accrual-label {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--gray-500);
+}
+
+.deposit-plan-facts {
+  width: 100%;
+  list-style: none;
+  margin-top: 14px;
+  border-top: 1px solid var(--glass-border);
+}
+
+.deposit-plan-facts li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  font-size: 14px;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.deposit-plan-facts li:last-child {
+  border-bottom: none;
+}
+
+.deposit-plan-facts span {
+  color: var(--gray-500);
+}
+
+.deposit-plan-facts strong {
+  color: var(--white);
+  font-weight: 700;
+  text-align: right;
+}
+
+.deposit-plans-note {
+  margin-top: 36px;
+  text-align: center;
+  font-size: 15px;
+  color: var(--gray-400);
 }
 
 /* ============ FEES TEASER ============ */

@@ -31,10 +31,16 @@ Two portals share one backend:
 ```bash
 # 1. Start Docker Desktop
 
-# 2. Build and start all services
+# 2. Create the root environment file (required by docker-compose.yml).
+#    Compose reads env_file: .env at the project root; without it, `up` fails
+#    with "env file ...\.env not found".
+cp .env.example .env        # Linux/macOS
+copy .env.example .env      # Windows (PowerShell: Copy-Item .env.example .env)
+
+# 3. Build and start all services
 docker compose up --build -d
 
-# 3. Access the system
+# 4. Access the system
 #    Frontend:  http://localhost:3000   (clients: /dashboard, staff: /admin)
 #    Backend:   http://localhost:8000/api/health
 #    Adminer:   http://localhost:8081  (server: postgres, user: gdptrader,

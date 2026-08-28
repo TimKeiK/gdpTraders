@@ -50,7 +50,7 @@ export default function Footer() {
         <div className="footer-bottom">
           <p>© {new Date().getFullYear()} GDPTraders. All rights reserved.</p>
           <p className="footer-withdrawals">
-            Withdrawals: 1–3 business days (fiat) · Instant (crypto to whitelisted wallets)
+            Withdrawals: 1–3 business days 
           </p>
         </div>
       </div>

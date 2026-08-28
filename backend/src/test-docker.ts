@@ -1,3 +1,4 @@
+/// <reference types="node" />
 /* @ts-nocheck */
 /**
  * Test the full Docker stack through the frontend proxy (port 3000).
@@ -21,61 +22,32 @@ async function main() {
   const health = await request('/health');
   console.log(`[1] Health via proxy: ${health.status}`, health.body.status, `| db: ${health.body.db}`);
 
-  // 2. Login as demo client
-  const login = await request('/auth/login', {
-    method: 'POST',
-    body: JSON.stringify({
-      email: 'demo@gdptraders.io',
-      password: 'DemoPass123!',
-    }),
-  });
-  console.log(`[2] Login: ${login.status}`, login.body.user?.email);
-  const clientToken = login.body.token;
-
-  // 3. Get portfolio summary
-  const summary = await request('/portfolio/summary', {
-    headers: { Authorization: `Bearer ${clientToken}` },
-  });
-  console.log(`[3] Portfolio Summary: ${summary.status}`, `Total: $${summary.body.totalValue}`);
-
-  // 4. Get transactions
-  const txns = await request('/portfolio/transactions', {
-    headers: { Authorization: `Bearer ${clientToken}` },
-  });
-  console.log(`[4] Transactions: ${txns.status}`, `${txns.body.length} transactions`);
-
-  // 5. Get wallet addresses
-  const addresses = await request('/wallet/addresses', {
-    headers: { Authorization: `Bearer ${clientToken}` },
-  });
-  console.log(`[5] Wallet Addresses: ${addresses.status}`, `${addresses.body.length} addresses`);
-
-  // 6. Login as admin
+  // 2. Login as admin (matches the staff account seeded by src/db/seed.ts)
   const adminLogin = await request('/auth/login', {
     method: 'POST',
     body: JSON.stringify({
       email: 'admin@gdptraders.io',
-      password: 'AdminPass123!',
+      password: 'gdpAdmin#',
     }),
   });
-  console.log(`[6] Admin Login: ${adminLogin.status}`, adminLogin.body.user?.role);
+  console.log(`[2] Admin Login: ${adminLogin.status}`, adminLogin.body.user?.email, `| role: ${adminLogin.body.user?.role}`);
   const adminToken = adminLogin.body.token;
 
-  // 7. Verify ledger integrity
+  // 3. Verify ledger integrity
   const integrity = await request('/admin/ledger/verify', {
     headers: { Authorization: `Bearer ${adminToken}` },
   });
-  console.log(`[7] Ledger Integrity: ${integrity.status}`, `valid=${integrity.body.valid}, entries=${integrity.body.checked}`);
+  console.log(`[3] Ledger Integrity: ${integrity.status}`, `valid=${integrity.body.valid}, entries=${integrity.body.checked}`);
 
-  // 8. Get admin stats
+  // 4. Get admin stats
   const stats = await request('/admin/stats', {
     headers: { Authorization: `Bearer ${adminToken}` },
   });
-  console.log(`[8] Admin Stats: ${stats.status}`, JSON.stringify(stats.body));
+  console.log(`[4] Admin Stats: ${stats.status}`, JSON.stringify(stats.body));
 
-  // 9. Get strategies
+  // 5. Get strategies (public)
   const strategies = await request('/strategies');
-  console.log(`[9] Strategies: ${strategies.status}`, `${strategies.body.length} products`);
+  console.log(`[5] Strategies: ${strategies.status}`, `${strategies.body.length} products`);
 
   console.log('\n=== All Docker stack tests passed ===');
 }

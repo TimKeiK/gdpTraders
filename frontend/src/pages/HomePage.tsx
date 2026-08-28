@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ShieldCheck,
@@ -6,7 +6,6 @@ import {
   Clock,
   ArrowRight,
   LineChart,
-  Scale,
   Lock,
   FileText,
   Wallet,
@@ -15,9 +14,6 @@ import {
   MessagesSquare,
   FileBarChart,
 } from 'lucide-react';
-import TrackRecordChart from '../components/TrackRecordChart';
-import { api, formatDate, type PerformancePoint } from '../api/client';
-import { strategies } from '../data/strategies';
 import './HomePage.css';
 
 const proofBarItems = [
@@ -148,89 +144,58 @@ function ProofBar() {
   );
 }
 
-function TrackRecordSection({ perf }: { perf: PerformancePoint[] }) {
-  return (
-    <section className="section">
-      <div className="container">
-        <div className="track-record">
-          <div className="track-record-head" data-reveal="up" style={revealDelay(0)}>
-            <div>
-              <span className="eyebrow">Our Track Record</span>
-              <h2 className="section-title">Performance vs. the Bitcoin Benchmark</h2>
-              <p className="section-subtitle">
-                Indexed to 100. We publish our performance against a passive BTC benchmark —
-                no placeholder stats, no hype. Historical backtested data is shared via a
-                secure data-room during onboarding.
-              </p>
-            </div>
-            <div className="track-record-note card" data-reveal="right" style={revealDelay(160)}>
-              <Scale size={20} />
-              <p>
-                <strong>Benchmark:</strong> BTC Index · Performance shown is re-indexed.
-                Past performance is not indicative of future results.
-              </p>
-            </div>
-          </div>
+const depositPlans = [
+  { rank: '🥉', name: 'Bronze', deposit: '$20 – $499', daily: '5%', duration: '50 Working Days' },
+  { rank: '🥈', name: 'Silver', deposit: '$500 – $1,499', daily: '7%', duration: '100 Working Days' },
+  { rank: '💎', name: 'Diamond', deposit: '$1,500 – $2,499', daily: '10%', duration: '150 Working Days' },
+  { rank: '🥇', name: 'Gold', deposit: '$2,500 – $4,999', daily: '20%', duration: '200 Working Days' },
+  { rank: '👑', name: 'Rhodium', deposit: '$5,000+', daily: '30%', duration: '250 Working Days' },
+];
 
-          {perf.length > 0 ? (
-            <div className="chart-card" data-reveal="zoom">
-              <TrackRecordChart
-                labels={perf.map((p) => formatDate(p.date))}
-                portfolioData={perf.map((p) => p.portfolio)}
-                benchmarkData={perf.map((p) => p.benchmark)}
-                height={360}
-              />
-            </div>
-          ) : (
-            <div className="card chart-loading" data-reveal="zoom">Loading track record…</div>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function StrategiesSection() {
+function DepositPlansSection() {
   return (
-    <section className="section strategies-section">
+    <section className="section deposit-plans-section">
       <div className="container">
         <div className="text-center mb-4" data-reveal="up">
-          <span className="eyebrow">Investment Products</span>
-          <h2 className="section-title">100% Crypto. Zero Distractions.</h2>
+          <span className="eyebrow">Investment Plans</span>
+          <h2 className="section-title">Available Deposit Plans</h2>
           <p className="section-subtitle" style={{ margin: '0 auto', textAlign: 'center' }}>
-            Four systematically managed strategies focused exclusively on digital assets and
-            DeFi yield.
+            Transparent, structured deposit plans with fixed daily accruals and working-day
+            durations across every tier.
           </p>
         </div>
 
-        <div className="grid-2">
-          {strategies.map((s, idx) => (
-            <div key={s.id} className="reveal-grid-cell" data-reveal="up" style={revealDelay(idx * 120)}>
-              <Link to={`/strategies/${s.id}`} className="card card-hover strategy-card">
-                <div className="strategy-card-top">
-                  <h3 className="strategy-card-name">{s.name}</h3>
-                  <span className={`badge badge-${s.volatilityClass}`}>
-                    {s.volatilityProfile} Vol
-                  </span>
-                </div>
-                <p className="strategy-card-focus">{s.assetFocus}</p>
-                <p className="strategy-card-mech">{s.mechanism}</p>
-                <div className="strategy-card-footer">
-                  <span className="strategy-card-min">
-                    Min. {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(s.minInvestment)}
-                  </span>
-                  <span className="strategy-card-link">
-                    Details <ArrowRight size={14} />
-                  </span>
-                </div>
-              </Link>
+        <div className="deposit-plans-grid">
+          {depositPlans.map((p, idx) => (
+            <div key={p.name} className="card deposit-plan-card" data-reveal="up" style={revealDelay(idx * 100)}>
+              <span className="deposit-plan-rank" aria-hidden>{p.rank}</span>
+              <h3 className="deposit-plan-name">{p.name} Plan</h3>
+              <div className="deposit-plan-accrual">
+                <span className="deposit-plan-accrual-value">{p.daily}</span>
+                <span className="deposit-plan-accrual-label">Daily Accrual</span>
+              </div>
+              <ul className="deposit-plan-facts">
+                <li>
+                  <span>Deposit</span>
+                  <strong>{p.deposit}</strong>
+                </li>
+                <li>
+                  <span>Duration</span>
+                  <strong>{p.duration}</strong>
+                </li>
+              </ul>
             </div>
           ))}
         </div>
+
+        <p className="deposit-plans-note" data-reveal="up">
+          ✅ Withdrawals are available Monday to Friday for all plans.
+        </p>
       </div>
     </section>
   );
 }
+
 
 function FeesTeaser() {
   return (
@@ -398,24 +363,13 @@ function CtaSection() {
 }
 
 export default function HomePage() {
-  const [perf, setPerf] = useState<PerformancePoint[]>([]);
-
-  useEffect(() => {
-    let mounted = true;
-    api.getPerformanceSeries(60).then((data) => {
-      if (mounted) setPerf(data);
-    });
-    return () => { mounted = false; };
-  }, []);
-
-  useScrollReveal([perf]);
+  useScrollReveal([]);
 
   return (
     <>
       <HeroSection />
       <ProofBar />
-      <TrackRecordSection perf={perf} />
-      <StrategiesSection />
+      <DepositPlansSection />
       <FeesTeaser />
       <DashboardFeatures />
       <FaqSection />

@@ -1,6 +1,4 @@
-import { useEffect, useState } from 'react';
-import { CheckCircle2, XCircle, Percent, Clock, Ban, Wallet } from 'lucide-react';
-import { api, type WithdrawalPolicy } from '../api/client';
+import { CheckCircle2, Percent, Clock, Ban, Wallet, CalendarDays } from 'lucide-react';
 import './FeesPage.css';
 
 const feeRows = [
@@ -16,15 +14,20 @@ const highWaterMark = [
   'A falling market never triggers a performance fee.',
 ];
 
+const withdrawalPolicy = [
+  { icon: CalendarDays, title: 'Processing Days', value: 'Monday – Friday' },
+  { icon: Clock, title: 'Processing Time', value: '1–3 business days after approval' },
+  { icon: Ban, title: 'Withdrawal Fee', value: '$0' },
+  { icon: Wallet, title: 'Network Gas', value: 'Passed through at cost' },
+];
+
+const withdrawalNotes = [
+  'Withdrawals are available Monday to Friday for all plans.',
+  'Once submitted and approved, requests are initiated within 1 to 3 business days.',
+  'The processing timeline begins only after the request has passed our internal verification checks.',
+];
+
 export default function FeesPage() {
-  const [policy, setPolicy] = useState<WithdrawalPolicy | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-    api.getWithdrawalPolicy().then((p) => { if (mounted) setPolicy(p); });
-    return () => { mounted = false; };
-  }, []);
-
   return (
     <>
       <section className="page-hero">
@@ -60,27 +63,28 @@ export default function FeesPage() {
             </ul>
           </div>
 
-          <div className="card mt-4">
+          <div className="card mt-4 withdrawal-card">
             <h3 className="fee-section-title">Withdrawal Policy</h3>
-            <div className="withdrawal-grid">
-              {policy ? (
-                <>
-                  <div className="withdrawal-item"><Clock size={18} /><span>Fiat Processing</span><strong>{policy.processingTimeFiat}</strong></div>
-                  <div className="withdrawal-item"><Clock size={18} /><span>Crypto Processing</span><strong>{policy.processingTimeCrypto}</strong></div>
-                  <div className="withdrawal-item"><Ban size={18} /><span>Withdrawal Fee</span><strong>{policy.withdrawalFee}</strong></div>
-                  <div className="withdrawal-item"><Wallet size={18} /><span>Network Gas</span><strong>{policy.networkFees}</strong></div>
-                </>
-              ) : (
-                <p>Loading withdrawal policy…</p>
-              )}
-            </div>
-          </div>
-
-          <div className="fee-note card mt-4">
-            <XCircle size={20} />
-            <p>
-              <strong>Important:</strong> The 15% performance fee is waived entirely for the first 12 months of the closed beta. Terms are fully documented in the subscription agreement.
+            <p className="withdrawal-intro">
+              Withdrawals are available Monday to Friday for all plans. Once a request
+              is submitted and approved, it is initiated within 1 to 3 business days,
+              and the timeline begins only after it has passed our internal verification
+              checks.
             </p>
+            <div className="withdrawal-grid">
+              {withdrawalPolicy.map((item) => (
+                <div className="withdrawal-item" key={item.title}>
+                  <item.icon size={18} />
+                  <span>{item.title}</span>
+                  <strong>{item.value}</strong>
+                </div>
+              ))}
+            </div>
+            <ul className="withdrawal-notes">
+              {withdrawalNotes.map((note) => (
+                <li key={note}><CheckCircle2 size={16} /> {note}</li>
+              ))}
+            </ul>
           </div>
         </div>
       </section>
