@@ -285,3 +285,99 @@
 .withdraw-next-steps li strong {
   color: var(--gray-200);
 }
+
+/* ============ Deposit grid layout and plans reminder ============ */
+
+.deposit-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 24px;
+  align-items: start;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.deposit-plans-info-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+}
+
+.plans-info-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: var(--white);
+}
+
+.plans-info-desc {
+  font-size: 13.5px;
+  color: var(--gray-400);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.plans-info-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.plan-info-item {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.plan-info-item:hover {
+  border-color: rgba(245, 197, 24, 0.25);
+  transform: translateY(-1px);
+}
+
+.plan-info-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.plan-info-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--white);
+}
+
+.plan-info-rate {
+  color: var(--gold);
+  font-weight: 700;
+  font-size: 13px;
+  background: rgba(245, 197, 24, 0.06);
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(245, 197, 24, 0.15);
+}
+
+.plan-info-details {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12.5px;
+  color: var(--gray-400);
+}
+
+.plan-info-details strong {
+  color: var(--white);
+}
+
+@media (max-width: 900px) {
+  .deposit-grid {
+    grid-template-columns: 1fr;
+  }
+}

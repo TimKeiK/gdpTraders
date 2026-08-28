@@ -17,6 +17,14 @@ import { useAuth } from '../../contexts/AuthContext';
 import './DashboardPages.css';
 import './DepositPage.css';
 
+const depositPlans = [
+  { rank: '🥉', name: 'Bronze', deposit: '$20 – $499', daily: '5%', duration: '50 Working Days' },
+  { rank: '🥈', name: 'Silver', deposit: '$500 – $1,499', daily: '7%', duration: '100 Working Days' },
+  { rank: '💎', name: 'Diamond', deposit: '$1,500 – $2,499', daily: '10%', duration: '150 Working Days' },
+  { rank: '🥇', name: 'Gold', deposit: '$2,500 – $4,999', daily: '20%', duration: '200 Working Days' },
+  { rank: '👑', name: 'Rhodium', deposit: '$5,000+', daily: '30%', duration: '250 Working Days' },
+];
+
 const SUPPORTED_ASSETS = [
   {
     value: 'USDT',
@@ -225,67 +233,96 @@ export default function DepositPage() {
         </div>
       ) : step === 'select' ? (
         /* Step 1: Choose a coin */
-        <div className="card deposit-card">
-          <div className="deposit-step-heading">
-            <span className="deposit-step-number">1</span>
-            <div>
-              <h3>Which coin do you want to deposit?</h3>
-              <p>Choose the coin you'd like to send. You'll get the correct address and network next.</p>
+        <div className="deposit-grid">
+          <div className="card deposit-card" style={{ maxWidth: '100%', margin: 0 }}>
+            <div className="deposit-step-heading">
+              <span className="deposit-step-number">1</span>
+              <div>
+                <h3>Which coin do you want to deposit?</h3>
+                <p>Choose the coin you'd like to send. You'll get the correct address and network next.</p>
+              </div>
             </div>
+
+            <form onSubmit={handleSelect} className="deposit-form">
+              <div className="form-group">
+                <label>Select Deposit Coin</label>
+                <select
+                  className="form-control"
+                  value={asset}
+                  onChange={(e) => setAsset(e.target.value)}
+                  disabled={loading}
+                  style={{ fontSize: '15px', height: '52px' }}
+                >
+                  {SUPPORTED_ASSETS.map((a) => (
+                    <option key={a.value} value={a.value}>
+                      {a.icon}  {a.label} — {a.network}
+                    </option>
+                  ))}
+                </select>
+                <p className="form-hint">
+                  {selectedAsset.icon} {selectedAsset.label} will be sent via the{' '}
+                  <strong>{selectedAsset.network}</strong>.
+                </p>
+              </div>
+
+              <div className="form-group">
+                <label>Deposit Amount (USD)</label>
+                <input
+                  className="form-control"
+                  type="number"
+                  inputMode="decimal"
+                  min="1"
+                  step="any"
+                  placeholder="e.g. 5,000"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  disabled={loading}
+                  style={{ fontSize: '16px', height: '52px' }}
+                />
+                <p className="form-hint">
+                  Enter how much you plan to deposit. This amount is used to verify your transfer and is
+                  credited to your portfolio once the admin confirms it.
+                </p>
+              </div>
+
+              {error && (
+                <p className="login-error" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16 }}>
+                  <AlertCircle size={14} /> {error}
+                </p>
+              )}
+
+              <button type="submit" className="btn btn-primary deposit-btn" style={{ width: '100%', justifyContent: 'center', padding: '14px', height: '50px' }}>
+                Get Deposit Address <Wallet size={16} />
+              </button>
+            </form>
           </div>
 
-          <form onSubmit={handleSelect} className="deposit-form">
-            <div className="form-group">
-              <label>Select Deposit Coin</label>
-              <select
-                className="form-control"
-                value={asset}
-                onChange={(e) => setAsset(e.target.value)}
-                disabled={loading}
-                style={{ fontSize: '15px', height: '52px' }}
-              >
-                {SUPPORTED_ASSETS.map((a) => (
-                  <option key={a.value} value={a.value}>
-                    {a.icon}  {a.label} — {a.network}
-                  </option>
-                ))}
-              </select>
-              <p className="form-hint">
-                {selectedAsset.icon} {selectedAsset.label} will be sent via the{' '}
-                <strong>{selectedAsset.network}</strong>.
-              </p>
+          {/* Investment Plans Reminder Card */}
+          <div className="card deposit-plans-info-card">
+            <h3 className="plans-info-title">Available Investment Plans</h3>
+            <p className="plans-info-desc">
+              Your daily interest rate is automatically assigned based on your total deposit tier:
+            </p>
+            <div className="plans-info-list">
+              {depositPlans.map((plan) => (
+                <div key={plan.name} className="plan-info-item">
+                  <div className="plan-info-header">
+                    <div className="plan-info-title-group">
+                      <span aria-hidden>{plan.rank}</span>
+                      <span>{plan.name} Plan</span>
+                    </div>
+                    <span className="plan-info-rate">
+                      {plan.daily} Daily
+                    </span>
+                  </div>
+                  <div className="plan-info-details">
+                    <span>Deposit: <strong>{plan.deposit}</strong></span>
+                    <span>Duration: <strong>{plan.duration}</strong></span>
+                  </div>
+                </div>
+              ))}
             </div>
-
-            <div className="form-group">
-              <label>Deposit Amount (USD)</label>
-              <input
-                className="form-control"
-                type="number"
-                inputMode="decimal"
-                min="1"
-                step="any"
-                placeholder="e.g. 5,000"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                disabled={loading}
-                style={{ fontSize: '16px', height: '52px' }}
-              />
-              <p className="form-hint">
-                Enter how much you plan to deposit. This amount is used to verify your transfer and is
-                credited to your portfolio once the admin confirms it.
-              </p>
-            </div>
-
-            {error && (
-              <p className="login-error" style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16 }}>
-                <AlertCircle size={14} /> {error}
-              </p>
-            )}
-
-            <button type="submit" className="btn btn-primary deposit-btn" style={{ width: '100%', justifyContent: 'center', padding: '14px', height: '50px' }}>
-              Get Deposit Address <Wallet size={16} />
-            </button>
-          </form>
+          </div>
         </div>
       ) : step === 'instructions' ? (
         /* Step 2: Instructions + address */
