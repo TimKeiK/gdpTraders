@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Bitcoin, Mail, KeyRound, User, ArrowRight, AlertCircle, LogIn } from 'lucide-react';
 import { authApi } from '../../api/client';
+import PasswordInput from '../../components/PasswordInput';
 import './SignUpPage.css';
 
 export default function SignUpPage() {
@@ -82,27 +83,26 @@ export default function SignUpPage() {
 
           <div className="form-group">
             <label><KeyRound size={14} /> Password</label>
-            <input
-              className="form-control"
-              type="password"
+            <PasswordInput
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="password"
               required
               disabled={loading}
+              autoComplete="new-password"
             />
           </div>
 
           <div className="form-group">
             <label><KeyRound size={14} /> Confirm Password</label>
-            <input
-              className="form-control"
-              type="password"
+            <PasswordInput
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               placeholder="Re-enter your password"
               required
               disabled={loading}
+              autoComplete="new-password"
+              toggleLabel="Show confirm password"
             />
           </div>
 

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Bitcoin, Mail, KeyRound, ArrowRight, AlertCircle, CheckCircle, UserPlus } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import PasswordInput from '../../components/PasswordInput';
 import './LoginPage.css';
 
 export default function LoginPage() {
@@ -83,14 +84,13 @@ export default function LoginPage() {
 
           <div className="form-group">
             <label><KeyRound size={14} /> Password</label>
-            <input
-              className="form-control"
-              type="password"
+            <PasswordInput
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="password"
               required
               disabled={loading}
+              autoComplete="current-password"
             />
           </div>
 
