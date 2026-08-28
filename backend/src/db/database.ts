@@ -172,6 +172,10 @@ export function addUser(user: User): void {
   store.users.set(user.id, user);
 }
 
+export function removeUser(id: string): void {
+  store.users.delete(id);
+}
+
 export function findUserByEmail(email: string): User | undefined {
   return [...store.users.values()].find((u) => u.email.toLowerCase() === email.toLowerCase());
 }

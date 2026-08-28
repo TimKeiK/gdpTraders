@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import { nanoid } from 'nanoid';
 import {
   addUser,
+  removeUser,
   findUserByEmail,
   findUserById,
   setEmailVerified,
@@ -59,13 +60,7 @@ router.post('/register', async (req: Request, res: Response) => {
     );
     const verificationLink = `${FRONTEND_URL}/verify-email?token=${verificationToken}`;
 
-    // Send before persisting: a failed send means no orphaned user record.
-    await sendVerificationEmail({
-      to: normalizedEmail,
-      username: name,
-      verificationLink,
-    });
-
+    // Persist first so the account always exists before any email goes out.
     const user: User = {
       id: userId,
       email: normalizedEmail,
@@ -79,8 +74,20 @@ router.post('/register', async (req: Request, res: Response) => {
       emailVerificationToken: verificationToken,
       createdAt: new Date().toISOString(),
     };
-
     await addUser(user);
+
+    try {
+      await sendVerificationEmail({
+        to: normalizedEmail,
+        username: name,
+        verificationLink,
+      });
+    } catch (emailError) {
+      // Don't leave an un-verifiable account behind if the email fails.
+      try { await removeUser(user.id); } catch { /* best effort */ }
+      throw emailError;
+    }
+
     await addAuditLog(user.id, 'ACCOUNT_CREATED', `User registered with email ${user.email}`);
 
     res.status(201).json({

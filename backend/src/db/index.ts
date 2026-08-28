@@ -34,6 +34,7 @@ export const {
   appendLedgerEntry,
   verifyLedgerIntegrity,
   addUser,
+  removeUser,
   findUserByEmail,
   findUserById,
   setKycStatus,

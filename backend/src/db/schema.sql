@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
     ip_whitelist TEXT[] DEFAULT '{}',
     withdrawal_cap NUMERIC(20, 2) DEFAULT 100000,
     is_email_verified BOOLEAN DEFAULT FALSE,
-    email_verification_token VARCHAR(255),
+    email_verification_token TEXT,
     created_at TIMESTAMP DEFAULT NOW()
 );
 

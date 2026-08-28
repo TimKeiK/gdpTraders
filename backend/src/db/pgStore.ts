@@ -34,7 +34,11 @@ export async function ensureSchema(): Promise<void> {
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_email_verified BOOLEAN DEFAULT FALSE`
   );
   await pool.query(
-    `ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token VARCHAR(255)`
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token TEXT`
+  );
+  // JWT tokens exceed 255 chars; widen any legacy VARCHAR column.
+  await pool.query(
+    `ALTER TABLE users ALTER COLUMN email_verification_token TYPE TEXT`
   );
 
   // Data-correctness normalization: a Withdrawal is only truly "Completed"
@@ -218,6 +222,10 @@ export async function addUser(user: User): Promise<void> {
     [user.id, user.email, user.passwordHash, user.name, user.role, user.kycStatus,
      user.ipWhitelist, user.withdrawalCap, user.isEmailVerified, user.emailVerificationToken, user.createdAt]
   );
+}
+
+export async function removeUser(id: string): Promise<void> {
+  await pool.query('DELETE FROM users WHERE id = $1', [id]);
 }
 
 export async function findUserByEmail(email: string): Promise<User | undefined> {
