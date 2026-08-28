@@ -29,16 +29,23 @@ export async function sendVerificationEmail({
   // No Resend API key configured — emit a verification link to the console so
   // signup still works in local / mock deployments.
   if (!resend) {
-    console.log(
-      `[email] No RESEND_API_KEY configured; skipping send to ${to}.\n` +
-        `  Verification link: ${verificationLink}`
-    );
+    if (process.env.NODE_ENV === 'production') {
+      console.error(
+        `[email] CRITICAL: No RESEND_API_KEY configured in production. ` +
+          `Verification email NOT sent to ${to}.`
+      );
+    } else {
+      console.log(
+        `[email] No RESEND_API_KEY configured; skipping send to ${to}.\n` +
+          `  Verification link: ${verificationLink}`
+      );
+    }
     return undefined;
   }
 
   try {
     const { data, error } = await resend.emails.send({
-      from: 'GDPTraders <onboarding@resend.dev>',
+      from: 'GDPTraders <noreply@gdptraders.live>',
       to: [to],
       subject: 'Verify your email address',
       html: `
