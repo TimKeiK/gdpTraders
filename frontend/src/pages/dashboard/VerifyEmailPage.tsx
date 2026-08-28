@@ -33,7 +33,7 @@ export default function VerifyEmailPage() {
     const verify = async () => {
       try {
         const res = await fetch(
-          `${API_BASE_URL}/api/auth/verify-email?token=${encodeURIComponent(token)}`,
+          `${API_BASE_URL}/auth/verify-email?token=${encodeURIComponent(token)}`,
           { signal: controller.signal }
         );
         const data = await res.json();
