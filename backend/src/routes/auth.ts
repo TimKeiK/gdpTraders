@@ -143,8 +143,12 @@ router.get('/verify-email', async (req: Request, res: Response) => {
       res.status(400).json({ error: 'Verification link has expired. Please request a new one.' });
       return;
     }
+    if (error instanceof jwt.JsonWebTokenError) {
+      res.status(400).json({ error: 'This verification link is invalid. Please use the link from your verification email, or sign up again to receive a new one.' });
+      return;
+    }
     console.error('Verification error:', error);
-    res.status(500).json({ error: 'Invalid or corrupted token' });
+    res.status(500).json({ error: 'Something went wrong while verifying your email. Please try again.' });
   }
 });
 
