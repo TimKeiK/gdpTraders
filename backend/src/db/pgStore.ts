@@ -41,6 +41,19 @@ export async function ensureSchema(): Promise<void> {
     `ALTER TABLE users ALTER COLUMN email_verification_token TYPE TEXT`
   );
 
+  // Admin-set "available withdrawal" amount — how much of the client's
+  // initial deposit + profit is currently withdrawable. Defaults to 0 so the
+  // client only sees a withdrawable balance once an admin grants it.
+  await pool.query(
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS available_withdrawal NUMERIC(20, 2) DEFAULT 0`
+  );
+  await pool.query(
+    `ALTER TABLE users ALTER COLUMN available_withdrawal SET DEFAULT 0`
+  );
+  await pool.query(
+    `ALTER TABLE users ALTER COLUMN available_withdrawal TYPE NUMERIC(20, 2)`
+  );
+
   // Data-correctness normalization: a Withdrawal is only truly "Completed"
   // once its ledger deduction exists. Any withdrawal stuck at 'Processing'
   // whose funds were already deducted (ledger entry present) must read
@@ -74,6 +87,7 @@ export interface User {
   withdrawalCap: number;
   isEmailVerified: boolean;
   emailVerificationToken: string | null;
+  availableWithdrawal: number;
   createdAt: string;
 }
 
@@ -216,11 +230,11 @@ export async function verifyLedgerIntegrity(): Promise<{ valid: boolean; checked
 
 export async function addUser(user: User): Promise<void> {
   await pool.query(
-    `INSERT INTO users (id, email, password_hash, name, role, kyc_status, ip_whitelist, withdrawal_cap, is_email_verified, email_verification_token, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    `INSERT INTO users (id, email, password_hash, name, role, kyc_status, ip_whitelist, withdrawal_cap, is_email_verified, email_verification_token, available_withdrawal, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      ON CONFLICT (id) DO NOTHING`,
     [user.id, user.email, user.passwordHash, user.name, user.role, user.kycStatus,
-     user.ipWhitelist, user.withdrawalCap, user.isEmailVerified, user.emailVerificationToken, user.createdAt]
+     user.ipWhitelist, user.withdrawalCap, user.isEmailVerified, user.emailVerificationToken, user.availableWithdrawal ?? 0, user.createdAt]
   );
 }
 
@@ -255,6 +269,13 @@ export async function setUserRole(userId: string, role: UserRole): Promise<void>
   await pool.query('UPDATE users SET role = $1 WHERE id = $2', [role, userId]);
 }
 
+export async function setAvailableWithdrawal(userId: string, amount: number): Promise<void> {
+  await pool.query(
+    'UPDATE users SET available_withdrawal = $1 WHERE id = $2',
+    [amount, userId]
+  );
+}
+
 export async function getAllUsers(): Promise<User[]> {
   const res = await pool.query('SELECT * FROM users');
   return res.rows.map(mapUser);
@@ -272,6 +293,7 @@ function mapUser(row: any): User {
     withdrawalCap: Number(row.withdrawal_cap),
     isEmailVerified: row.is_email_verified,
     emailVerificationToken: row.email_verification_token,
+    availableWithdrawal: Number(row.available_withdrawal ?? 0),
     createdAt: row.created_at,
   };
 }

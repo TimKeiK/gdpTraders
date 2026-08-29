@@ -27,6 +27,7 @@ export interface User {
   withdrawalCap: number; // daily USD cap
   isEmailVerified: boolean;
   emailVerificationToken: string | null;
+  availableWithdrawal: number;
   createdAt: string;
 }
 
@@ -200,6 +201,11 @@ export function setEmailVerified(userId: string): void {
 export function setUserRole(userId: string, role: UserRole): void {
   const user = store.users.get(userId);
   if (user) user.role = role;
+}
+
+export function setAvailableWithdrawal(userId: string, amount: number): void {
+  const user = store.users.get(userId);
+  if (user) user.availableWithdrawal = amount;
 }
 
 export function getAllUsers(): User[] {

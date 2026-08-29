@@ -72,6 +72,7 @@ router.post('/register', async (req: Request, res: Response) => {
       withdrawalCap: 100000,
       isEmailVerified: false,
       emailVerificationToken: verificationToken,
+      availableWithdrawal: 0,
       createdAt: new Date().toISOString(),
     };
     await addUser(user);

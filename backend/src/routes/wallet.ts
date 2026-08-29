@@ -412,6 +412,16 @@ router.post('/withdraw', requireKycApproved, async (req: AuthenticatedRequest, r
     return;
   }
 
+  // The "available withdrawal" amount is set by an admin (from the client's
+  // initial deposit plus any profit credited). A client can only withdraw up
+  // to this approved amount — 0 means no withdrawal has been granted yet.
+  if (parsedAmount > user.availableWithdrawal) {
+    res.status(400).json({
+      error: `Amount exceeds your available withdrawal of ${user.availableWithdrawal.toLocaleString(undefined, { maximumFractionDigits: 2 })} USD. Please contact support if you believe this is incorrect.`,
+    });
+    return;
+  }
+
   // Ensure the client actually holds enough funds (ledger = source of truth).
   const ledger = await getLedgerForUser(user.id);
   const available = ledger.reduce((sum, entry) => sum + entry.amount, 0);

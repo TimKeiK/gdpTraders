@@ -25,6 +25,7 @@ export async function seedDatabase(): Promise<void> {
       withdrawalCap: 0,
       isEmailVerified: true,
       emailVerificationToken: null,
+      availableWithdrawal: 0,
       createdAt,
     },
     {
@@ -38,6 +39,7 @@ export async function seedDatabase(): Promise<void> {
       withdrawalCap: 0,
       isEmailVerified: true,
       emailVerificationToken: null,
+      availableWithdrawal: 0,
       createdAt,
     },
   ];

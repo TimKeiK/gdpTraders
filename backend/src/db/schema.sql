@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
     withdrawal_cap NUMERIC(20, 2) DEFAULT 100000,
     is_email_verified BOOLEAN DEFAULT FALSE,
     email_verification_token TEXT,
+    available_withdrawal NUMERIC(20, 2) DEFAULT 0,
     created_at TIMESTAMP DEFAULT NOW()
 );
 

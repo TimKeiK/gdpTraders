@@ -4,6 +4,7 @@ import {
   getPerformance,
   getTransactionsForUser,
   getLedgerForUser,
+  findUserById,
 } from '../db/index.js';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 
@@ -55,6 +56,8 @@ router.get('/summary', async (req: AuthenticatedRequest, res: Response) => {
   const totalProfit = pnlEntries.reduce((sum, entry) => sum + Math.max(entry.amount, 0), 0);
   const totalLoss = pnlEntries.reduce((sum, entry) => sum + Math.abs(Math.min(entry.amount, 0)), 0);
 
+  const user = await findUserById(userId);
+
   const totalPnlPercent = costBasis !== 0 ? (totalPnl / costBasis) * 100 : 0;
   const todayPnlPercent = costBasis !== 0 ? (totalPnl24h / costBasis) * 100 : 0;
 
@@ -64,6 +67,10 @@ router.get('/summary', async (req: AuthenticatedRequest, res: Response) => {
     totalProfit,
     totalLoss,
     netPnl: totalProfit - totalLoss,
+    // Initial capital = total deposits made by the client (cost basis).
+    initialDeposit: costBasis,
+    // Admin-set withdrawable amount (from the initial deposit + profit).
+    availableWithdrawal: user?.availableWithdrawal ?? 0,
     totalPnlPercent,
     todayPnl: totalPnl24h,
     todayPnlPercent,

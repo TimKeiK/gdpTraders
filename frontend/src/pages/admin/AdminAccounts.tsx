@@ -9,6 +9,7 @@ import {
   AlertCircle,
   CheckCircle,
   DollarSign,
+  Lock,
   X,
 } from 'lucide-react';
 import { adminApi, formatCurrency, type AdminUser } from '../../api/client';
@@ -53,6 +54,12 @@ export default function AdminAccounts() {
   const [debNote, setDebNote] = useState('');
   const [debBusy, setDebBusy] = useState(false);
   const [debErr, setDebErr] = useState('');
+
+  // Available-withdrawal modal state (set how much a client can withdraw)
+  const [withdrawFor, setWithdrawFor] = useState<AdminUser | null>(null);
+  const [wdAmount, setWdAmount] = useState('');
+  const [wdBusy, setWdBusy] = useState(false);
+  const [wdErr, setWdErr] = useState('');
 
   const load = () => {
     adminApi
@@ -168,6 +175,33 @@ export default function AdminAccounts() {
     }
   };
 
+  const openWithdraw = (u: AdminUser) => {
+    setWithdrawFor(u);
+    setWdAmount(u.availableWithdrawal ? String(u.availableWithdrawal) : '');
+    setWdErr('');
+  };
+
+  const submitWithdraw = async () => {
+    if (!withdrawFor) return;
+    const amount = parseFloat(wdAmount);
+    if (isNaN(amount) || amount < 0) {
+      setWdErr('Enter a non-negative amount.');
+      return;
+    }
+    setWdBusy(true);
+    setWdErr('');
+    try {
+      await adminApi.setAvailableWithdrawal(withdrawFor.id, amount);
+      setMsg(`Available withdrawal for ${withdrawFor.email} set to ${formatCurrency(amount)}`);
+      setWithdrawFor(null);
+      load();
+    } catch (e) {
+      setWdErr(e instanceof Error ? e.message : 'Failed to set available withdrawal');
+    } finally {
+      setWdBusy(false);
+    }
+  };
+
   const isStaff = (role: string) => role === 'admin' || role === 'compliance';
 
   return (
@@ -224,7 +258,13 @@ export default function AdminAccounts() {
                   </td>
                   <td><span className={`admin-pill ${ROLE_PILL[u.role] || 'pill-gray'}`}>{u.role}</span></td>
                   <td><span className={`admin-pill ${KYC_PILL[u.kycStatus] || 'pill-gray'}`}>{u.kycStatus}</span></td>
-                  <td><strong>{formatCurrency(u.balance)}</strong></td>
+                  <td>
+                    <strong>{formatCurrency(u.balance)}</strong>
+                    <div style={{ fontSize: 11, color: 'var(--gray-400)' }}>
+                      <Lock size={11} style={{ verticalAlign: 'text-bottom', marginRight: 3 }} />
+                      avail. wd: <span className="pos">{formatCurrency(u.availableWithdrawal)}</span>
+                    </div>
+                  </td>
                   <td>
                     <div><strong className={u.netPnl >= 0 ? 'pos' : 'neg'}>{formatCurrency(u.netPnl)}</strong></div>
                     <div style={{ fontSize: 11, color: 'var(--gray-400)' }}>
@@ -289,6 +329,9 @@ export default function AdminAccounts() {
                           </button>
                           <button className="admin-btn red" onClick={() => openDebit(u)} title="Debit funds (recorded as loss)">
                             <Minus size={14} /> Debit
+                          </button>
+                          <button className="admin-btn" onClick={() => openWithdraw(u)} title="Set how much this client can withdraw">
+                            <Lock size={14} /> Withdrawal
                           </button>
                         </>
                       )}
@@ -414,6 +457,49 @@ export default function AdminAccounts() {
               <button className="admin-btn" onClick={() => setDebitFor(null)} disabled={debBusy}>Cancel</button>
               <button className="admin-btn red" onClick={submitDebit} disabled={debBusy} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Minus size={16} /> {debBusy ? 'Debiting…' : 'Debit as Loss'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Set available withdrawal modal */}
+      {withdrawFor && (
+        <div className="admin-modal-backdrop" onClick={() => !wdBusy && setWithdrawFor(null)}>
+          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <h3>Set Available Withdrawal</h3>
+                <p className="admin-modal-sub">
+                  Set how much <strong>{withdrawFor.name}</strong> ({withdrawFor.email}) can withdraw
+                  — from their initial deposit plus any profit credited. Current available: {formatCurrency(withdrawFor.availableWithdrawal)}.
+                </p>
+              </div>
+              <button className="admin-btn ghost" onClick={() => !wdBusy && setWithdrawFor(null)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {wdErr && <div className="admin-msg err"><AlertCircle size={16} /> {wdErr}</div>}
+
+            <div className="form-group">
+              <label>Available withdrawal amount (USD)</label>
+              <input
+                className="form-control"
+                type="number"
+                min="0"
+                step="any"
+                value={wdAmount}
+                onChange={(e) => setWdAmount(e.target.value)}
+                placeholder="e.g. 7500"
+                disabled={wdBusy}
+              />
+            </div>
+
+            <div className="admin-modal-actions">
+              <button className="admin-btn" onClick={() => setWithdrawFor(null)} disabled={wdBusy}>Cancel</button>
+              <button className="admin-btn primary" onClick={submitWithdraw} disabled={wdBusy} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Lock size={16} /> {wdBusy ? 'Saving…' : 'Save Available Withdrawal'}
               </button>
             </div>
           </div>

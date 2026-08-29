@@ -40,6 +40,7 @@ export const {
   setKycStatus,
   setEmailVerified,
   setUserRole,
+  setAvailableWithdrawal,
   getAllUsers,
   addWallet,
   getWalletsForUser,

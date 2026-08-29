@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Wallet, Plus, ArrowUpRight, AlertCircle, Activity, TrendingUp, TrendingDown, BarChart3, RefreshCw } from 'lucide-react';
+import { Wallet, Plus, ArrowUpRight, AlertCircle, TrendingUp, Landmark, Lock, BarChart3, RefreshCw } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { api, formatCurrency, formatPercent, type PortfolioSummary } from '../../api/client';
 import CandlestickChart, { type Candle } from '../../components/CandlestickChart';
@@ -135,18 +135,16 @@ export default function OverviewPage() {
         )}
         {summary && (
           <div className="card card-hover kpi-card">
-            <span className="kpi-icon"><TrendingDown size={20} /></span>
-            <span className="kpi-label">Total Loss</span>
-            <strong className="kpi-value neg">{formatCurrency(-summary.totalLoss)}</strong>
+            <span className="kpi-icon"><Landmark size={20} /></span>
+            <span className="kpi-label">Initial Capital Invested</span>
+            <strong className="kpi-value">{formatCurrency(summary.initialDeposit)}</strong>
           </div>
         )}
         {summary && (
           <div className="card card-hover kpi-card">
-            <span className="kpi-icon"><Activity size={20} /></span>
-            <span className="kpi-label">Total P&L</span>
-            <strong className={`kpi-value ${summary.totalPnl >= 0 ? 'pos' : 'neg'}`}>
-              {summary.totalPnl >= 0 ? '+' : ''}{formatCurrency(summary.totalPnl)}
-            </strong>
+            <span className="kpi-icon"><Lock size={20} /></span>
+            <span className="kpi-label">Available Withdrawal</span>
+            <strong className="kpi-value pos">{formatCurrency(summary.availableWithdrawal)}</strong>
           </div>
         )}
       </div>

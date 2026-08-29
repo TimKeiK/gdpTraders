@@ -15,6 +15,8 @@ export interface PortfolioSummary {
   totalProfit: number;
   totalLoss: number;
   netPnl: number;
+  initialDeposit: number;
+  availableWithdrawal: number;
   totalPnlPercent: number;
   todayPnl: number;
   todayPnlPercent: number;
@@ -243,6 +245,7 @@ export interface AdminUser {
   kycStatus: string;
   createdAt: string;
   withdrawalCap: number;
+  availableWithdrawal: number;
   balance: number;
   deposits: number;
   withdrawals: number;
@@ -345,6 +348,14 @@ export const adminApi = {
     return request<{ userId: string; role: string }>(`/admin/users/${userId}/role`, {
       method: 'POST',
       body: JSON.stringify({ role }),
+    });
+  },
+
+  /** Admin sets the amount a client is currently able to withdraw. */
+  async setAvailableWithdrawal(userId: string, amount: number): Promise<{ userId: string; availableWithdrawal: number }> {
+    return request<{ userId: string; availableWithdrawal: number }>(`/admin/users/${userId}/withdrawal-amount`, {
+      method: 'POST',
+      body: JSON.stringify({ amount }),
     });
   },
 

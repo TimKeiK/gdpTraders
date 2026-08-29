@@ -256,6 +256,7 @@ GET    /api/admin/users                           # accounts with derived portfo
 POST   /api/admin/users/:id/kyc                   # set KYC status
 POST   /api/admin/users/:id/role                  # change role (admin only)
 POST   /api/admin/users/:id/deposit               # manual credit { asset, amount } + ledger entry
+POST   /api/admin/users/:id/withdrawal-amount      # { amount } → set client's available-withdrawal limit
 GET    /api/admin/transactions                    # all transactions joined with client identity
 POST   /api/admin/transactions/:id/confirm-deposit  # { amount } → ledger credit
 POST   /api/admin/transactions/:id/deny-deposit     # → Cancelled

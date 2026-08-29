@@ -9,6 +9,7 @@ import {
   getWithdrawalRequests,
   setKycStatus,
   setUserRole,
+  setAvailableWithdrawal,
   findUserById,
   addTransaction,
   addAuditLog,
@@ -67,6 +68,7 @@ function accountSummary(user: User, ledger: LedgerEntry[], txns: Transaction[]) 
     kycStatus: user.kycStatus,
     createdAt: user.createdAt,
     withdrawalCap: user.withdrawalCap,
+    availableWithdrawal: user.availableWithdrawal ?? 0,
     balance: portfolioValue(ledger, user.id),
     deposits,
     withdrawals,
@@ -219,6 +221,39 @@ router.post(
 );
 
 // ---------- Funds ----------
+
+/**
+ * POST /api/admin/users/:id/withdrawal-amount
+ * Set how much a client can currently withdraw (from their initial deposit
+ * plus any profit). The client sees this as "Available withdrawal" on their
+ * dashboard. Staff (admin/compliance) can grant or revoke withdrawal access.
+ * Body: { amount }
+ */
+router.post(
+  '/users/:id/withdrawal-amount',
+  requireRole(...STAFF),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const id = String(req.params.id);
+    const { amount } = req.body as { amount: number };
+    const user = await findUserById(id);
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+    const parsed = Number(amount);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      res.status(400).json({ error: 'Amount must be a non-negative number' });
+      return;
+    }
+    await setAvailableWithdrawal(id, parsed);
+    await addAuditLog(
+      id,
+      'WITHDRAWAL_AMOUNT_SET',
+      `Available withdrawal set to ${parsed} by ${req.user!.email}`
+    );
+    res.json({ userId: id, availableWithdrawal: parsed });
+  }
+);
 
 /**
  * POST /api/admin/users/:id/deposit
