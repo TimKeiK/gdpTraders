@@ -12,6 +12,9 @@ interface User {
   name: string;
   role: string;
   kycStatus: string;
+  withdrawalAddress?: string | null;
+  withdrawalCap?: number;
+  availableWithdrawal?: number;
 }
 
 interface AuthContextValue {
@@ -22,6 +25,7 @@ interface AuthContextValue {
   register: (email: string, password: string, name: string) => Promise<void>;
   logout: () => void;
   refreshProfile: () => Promise<void>;
+  updateUser: (updates: Partial<User>) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -80,6 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       name: res.user.name,
       role: res.user.role,
       kycStatus: res.user.kycStatus,
+      withdrawalAddress: (res.user as User).withdrawalAddress,
     });
   };
 
@@ -102,16 +107,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         name: profile.name,
         role: profile.role,
         kycStatus: profile.kycStatus,
+        withdrawalAddress: (profile as User).withdrawalAddress,
+        withdrawalCap: (profile as User).withdrawalCap,
+        availableWithdrawal: (profile as User).availableWithdrawal,
       });
     } catch (err) {
       console.error('Failed to refresh user profile:', err);
     }
   };
 
+  const updateUser = (updates: Partial<User>) => {
+    setUser((prev) => (prev ? { ...prev, ...updates } : prev));
+  };
+
   const isAuthenticated = !!user;
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, register, logout, refreshProfile }}>
+    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, register, logout, refreshProfile, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

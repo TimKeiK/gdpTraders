@@ -48,10 +48,33 @@ export interface StrategyAllocation {
   pnl24h: number;
 }
 
+/** Client's un-reinvested profit summary and reinvestment history. */
+export interface ReinvestSummary {
+  totalProfit: number;
+  totalLoss: number;
+  reinvested: number;
+  availableProfit: number;
+  reinvestments: { id: string; date: string; amount: number; status: string }[];
+}
+
+/** The client's active investment record (investments table snapshot).
+ *  Plan fields can be null on legacy rows flagged 'under_review' (< $20). */
+export interface ActiveInvestment {
+  id: string;
+  planName: string | null;
+  initialDeposit: number;
+  dailyRate: number | null;
+  durationDays: number | null;
+  startDate: string;
+  endDate: string | null;
+  totalExpectedReturn: number | null;
+  status: string;
+}
+
 export interface Transaction {
   id: string;
   date: string;
-  type: 'Deposit' | 'Withdrawal' | 'Trade' | 'Fee' | 'Performance Fee';
+  type: 'Deposit' | 'Withdrawal' | 'Trade' | 'Fee' | 'Performance Fee' | 'Reinvest';
   asset: string;
   amount: number;
   strategy: string;
@@ -85,7 +108,20 @@ export interface LoginResponse {
     name: string;
     role: string;
     kycStatus: string;
+    withdrawalAddress?: string | null;
   };
+}
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  kycStatus: string;
+  withdrawalCap: number;
+  availableWithdrawal: number;
+  withdrawalAddress: string | null;
+  createdAt: string;
 }
 
 // ---------- Auth token management ----------
@@ -144,8 +180,29 @@ export const authApi = {
     return res;
   },
 
-  async getProfile(): Promise<LoginResponse['user']> {
-    return request<LoginResponse['user']>('/auth/profile');
+  async getProfile(): Promise<UserProfile> {
+    return request<UserProfile>('/auth/profile');
+  },
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<{ message: string }> {
+    return request<{ message: string }>('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+  },
+
+  async updateProfile(name: string): Promise<{ name: string; message: string }> {
+    return request<{ name: string; message: string }>('/auth/profile', {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    });
+  },
+
+  async updateWithdrawalAddress(address: string): Promise<{ withdrawalAddress: string; message: string }> {
+    return request<{ withdrawalAddress: string; message: string }>('/auth/withdrawal-address', {
+      method: 'PUT',
+      body: JSON.stringify({ address }),
+    });
   },
 
   async submitKyc(documentType: string, documentNumber: string): Promise<{ status: string; message: string }> {
@@ -240,8 +297,25 @@ export const api = {
       body: JSON.stringify({ asset, amount, destinationAddress, network }),
     });
   },
-};
 
+  /** Requests to reinvest profit into the initial capital (admin-approved). */
+  async reinvestProfit(amount: number): Promise<{ transaction: Transaction; availableProfit: number; message: string }> {
+    return request<{ transaction: Transaction; availableProfit: number; message: string }>('/wallet/reinvest-profit', {
+      method: 'POST',
+      body: JSON.stringify({ amount }),
+    });
+  },
+
+  /** Fetches the client's available profit and reinvestment history. */
+  async getReinvestSummary(): Promise<ReinvestSummary> {
+    return request<ReinvestSummary>('/wallet/reinvest-profit');
+  },
+
+  /** Fetches the client's active investment (from the investments table). */
+  async getInvestment(): Promise<{ investment: ActiveInvestment | null; daysRemaining: number }> {
+    return request<{ investment: ActiveInvestment | null; daysRemaining: number }>('/wallet/investment');
+  },
+};
 // ---------- Admin types ----------
 
 export interface AdminUser {

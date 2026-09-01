@@ -22,6 +22,8 @@ import {
   type LedgerEntry,
 } from '../db/index.js';
 import { requireAuth, requireRole, type AuthenticatedRequest } from '../middleware/auth.js';
+import { recordInvestmentForDeposit } from './wallet.js';
+import { getPlanByAmount, MIN_DEPOSIT } from '../data/plans.js';
 
 const router = Router();
 
@@ -295,9 +297,13 @@ router.post(
     // Admin credit == PROFIT: append a 'profit' ledger entry (positive amount)
     // so the client's P&L and the admin P&L dashboards reflect it.
     await appendLedgerEntry(id, asset, amount, 'profit', txId);
-    await addAuditLog(id, 'ADMIN_CREDIT_PROFIT', `Admin credited ${amount} ${asset} as PROFIT (${txId}) by ${req.user!.email}`);
+    // Keep "Available withdrawal" in sync with credited profit: every credit
+    // raises the amount the client can withdraw by the same amount, so the
+    // client's dashboard Total Profit and Available Withdrawal match.
+    await setAvailableWithdrawal(id, (user.availableWithdrawal ?? 0) + amount);
+    await addAuditLog(id, 'ADMIN_CREDIT_PROFIT', `Admin credited ${amount} ${asset} as PROFIT (${txId}) by ${req.user!.email}. Available withdrawal increased to ${(user.availableWithdrawal ?? 0) + amount}.`);
 
-    res.status(201).json({ transaction: tx, message: `Credited ${amount} ${asset} to ${user.email} (recorded as profit)` });
+    res.status(201).json({ transaction: tx, availableWithdrawal: (user.availableWithdrawal ?? 0) + amount, message: `Credited ${amount} ${asset} to ${user.email} (recorded as profit). Available withdrawal is now ${(user.availableWithdrawal ?? 0) + amount}.` });
   }
 );
 
@@ -352,15 +358,23 @@ router.post(
     // Admin debit == LOSS: append a 'loss' ledger entry (negative amount)
     // so the balance drops and the P&L on both portals reflects the loss.
     await appendLedgerEntry(id, asset, -amount, 'loss', txId);
-    await addAuditLog(id, 'ADMIN_DEBIT_LOSS', `Admin debited ${amount} ${asset} as LOSS (${txId}) by ${req.user!.email}`);
+    // Keep "Available withdrawal" in sync with losses: a debit reduces the
+    // amount the client can withdraw (never below 0).
+    const newAvailable = Math.max((user.availableWithdrawal ?? 0) - amount, 0);
+    await setAvailableWithdrawal(id, newAvailable);
+    await addAuditLog(id, 'ADMIN_DEBIT_LOSS', `Admin debited ${amount} ${asset} as LOSS (${txId}) by ${req.user!.email}. Available withdrawal reduced to ${newAvailable}.`);
 
-    res.status(201).json({ transaction: tx, message: `Debited ${amount} ${asset} from ${user.email} (recorded as loss)` });
+    res.status(201).json({ transaction: tx, availableWithdrawal: newAvailable, message: `Debited ${amount} ${asset} from ${user.email} (recorded as loss). Available withdrawal is now ${newAvailable}.` });
   }
 );
 
 /**
  * POST /api/admin/transactions/:id/confirm-deposit
  * Confirm a client-submitted (Processing) crypto deposit and credit the account.
+ * Also handles 'Reinvest' transactions: approving a reinvestment moves the
+ * client's profit into their initial capital (a 'deposit' ledger entry
+ * increases the cost basis; a balancing 'trade' entry removes the amount from
+ * P&L so the total portfolio value is unchanged).
  * Body: { amount }
  */
 router.post(
@@ -370,7 +384,7 @@ router.post(
     const id = String(req.params.id);
     const { amount } = req.body as { amount?: number };
     const txns = await getAllTransactions();
-    const tx = txns.find((t) => t.id === id && t.type === 'Deposit');
+    const tx = txns.find((t) => t.id === id && (t.type === 'Deposit' || t.type === 'Reinvest'));
 
     if (!tx) {
       res.status(404).json({ error: 'Deposit transaction not found' });
@@ -387,16 +401,41 @@ router.post(
 
     const updated: Transaction = { ...tx, amount, status: 'Completed', strategy: tx.strategy || 'Crypto Deposit' };
     await addTransaction(updated);
-    await appendLedgerEntry(tx.userId, tx.asset, amount, 'deposit', tx.id);
-    await addAuditLog(tx.userId, 'DEPOSIT_CONFIRMED', `Deposit ${tx.id} confirmed for ${amount} ${tx.asset} by ${req.user!.email}`);
 
-    res.json({ transaction: updated, message: `Deposit ${tx.id} confirmed and credited with ${amount} ${tx.asset}.` });
+    if (tx.type === 'Reinvest') {
+      // Profit → capital: increase the cost basis (deposit entry) and remove
+      // the same amount from P&L (balancing trade entry). Net effect on the
+      // client's total portfolio value is zero — the money just changes bucket.
+      await appendLedgerEntry(tx.userId, tx.asset, amount, 'deposit', tx.id);
+      await appendLedgerEntry(tx.userId, tx.asset, -amount, 'trade', tx.id);
+      await addAuditLog(tx.userId, 'REINVEST_CONFIRMED', `Reinvestment ${tx.id} approved: ${amount} ${tx.asset} moved from profit to initial capital by ${req.user!.email}`);
+      res.json({ transaction: updated, message: `Reinvestment ${tx.id} approved. ${amount} ${tx.asset} of profit added to the client's initial capital.` });
+      return;
+    }
+
+    await appendLedgerEntry(tx.userId, tx.asset, amount, 'deposit', tx.id);
+
+    // Snapshot the investment plan for this confirmed deposit (amounts below
+    // the $20 minimum have no plan — the deposit is still credited, but no
+    // investment record is created and the admin is told why).
+    let investmentNote = '';
+    if (tx.type === 'Deposit' && getPlanByAmount(amount)) {
+      const investment = await recordInvestmentForDeposit(tx.userId, amount);
+      investmentNote = ` Assigned plan: ${investment.assignedPlan}.`;
+    } else if (tx.type === 'Deposit') {
+      investmentNote = ` Note: below the $${MIN_DEPOSIT} minimum, so no investment plan was assigned.`;
+    }
+
+    await addAuditLog(tx.userId, 'DEPOSIT_CONFIRMED', `Deposit ${tx.id} confirmed for ${amount} ${tx.asset} by ${req.user!.email}.${investmentNote}`);
+
+    res.json({ transaction: updated, message: `Deposit ${tx.id} confirmed and credited with ${amount} ${tx.asset}.${investmentNote}` });
   }
 );
 
 /**
  * POST /api/admin/transactions/:id/deny-deposit
- * Reject/cancel a client-submitted deposit that cannot be verified.
+ * Reject/cancel a client-submitted deposit (or profit reinvestment) that
+ * cannot be verified. Cancelling a reinvestment releases the reserved profit.
  */
 router.post(
   '/transactions/:id/deny-deposit',
@@ -404,7 +443,7 @@ router.post(
   async (req: AuthenticatedRequest, res: Response) => {
     const id = String(req.params.id);
     const txns = await getAllTransactions();
-    const tx = txns.find((t) => t.id === id && t.type === 'Deposit');
+    const tx = txns.find((t) => t.id === id && (t.type === 'Deposit' || t.type === 'Reinvest'));
 
     if (!tx) {
       res.status(404).json({ error: 'Deposit transaction not found' });
@@ -417,9 +456,9 @@ router.post(
 
     const updated: Transaction = { ...tx, status: 'Cancelled', strategy: `${tx.strategy || 'Deposit'} (Denied)` };
     await addTransaction(updated);
-    await addAuditLog(tx.userId, 'DEPOSIT_DENIED', `Deposit ${tx.id} denied by ${req.user!.email}`);
+    await addAuditLog(tx.userId, tx.type === 'Reinvest' ? 'REINVEST_DENIED' : 'DEPOSIT_DENIED', `${tx.type === 'Reinvest' ? 'Reinvestment' : 'Deposit'} ${tx.id} denied by ${req.user!.email}`);
 
-    res.json({ transaction: updated, message: `Deposit ${tx.id} denied. No funds credited.` });
+    res.json({ transaction: updated, message: `${tx.type === 'Reinvest' ? 'Reinvestment' : 'Deposit'} ${tx.id} denied. No funds credited.` });
   }
 );
 

@@ -28,6 +28,8 @@ export interface User {
   isEmailVerified: boolean;
   emailVerificationToken: string | null;
   availableWithdrawal: number;
+  /** A constant withdrawal destination address the client has saved in their profile. */
+  withdrawalAddress?: string;
   createdAt: string;
 }
 
@@ -48,6 +50,26 @@ export interface DepositAddress {
   createdAt: string;
 }
 
+/**
+ * A recorded investment: created when a client's deposit is confirmed.
+ * The plan is assigned strictly from the initial deposit amount and the
+ * computed fields are snapshotted at record time (immutable history).
+ */
+export interface Investment {
+  id: string;
+  userId: string; // foreign key → users.id
+  initialDeposit: number;
+  // Nullable on legacy rows created before the plan logic; the API layer
+  // applies a runtime fallback (getPlanByAmount) until the backfill runs.
+  assignedPlan: string | null; // e.g. "Silver"
+  dailyRate: number | null; // e.g. 7.0 (%)
+  durationDays: number | null; // working days, e.g. 100
+  startDate: string; // ISO timestamp of deposit
+  endDate: string | null; // start + durationDays working days (weekends skipped)
+  totalExpectedReturn: number | null; // deposit * (1 + dailyRate/100 * durationDays)
+  status: string; // 'active' | 'matured' | 'cancelled' | 'under_review'
+}
+
 export interface LedgerEntry {
   id: string;
   userId: string;
@@ -63,7 +85,7 @@ export interface Transaction {
   id: string;
   userId: string;
   date: string;
-  type: 'Deposit' | 'Withdrawal' | 'Trade' | 'Fee' | 'Performance Fee';
+  type: 'Deposit' | 'Withdrawal' | 'Trade' | 'Fee' | 'Performance Fee' | 'Reinvest';
   asset: string;
   amount: number;
   strategy: string;
@@ -104,6 +126,7 @@ type Store = {
   performance: Map<string, { date: string; portfolio: number; benchmark: number }[]>;
   auditLogs: AuditLogEntry[];
   withdrawalRequests: Map<string, Transaction>;
+  investments: Map<string, Investment>;
 };
 
 const store: Store = {
@@ -116,7 +139,26 @@ const store: Store = {
   performance: new Map(),
   auditLogs: [],
   withdrawalRequests: new Map(),
+  investments: new Map(),
 };
+
+// ---------- Investments ----------
+
+export function addInvestment(inv: Investment): void {
+  store.investments.set(inv.id, inv);
+}
+
+/** All investments for a user, newest first. */
+export function getInvestmentsForUser(userId: string): Investment[] {
+  return Array.from(store.investments.values())
+    .filter((i) => i.userId === userId)
+    .sort((a, b) => (a.startDate < b.startDate ? 1 : -1));
+}
+
+/** The user's most recent active investment, or undefined. */
+export function getActiveInvestmentForUser(userId: string): Investment | undefined {
+  return getInvestmentsForUser(userId).find((i) => i.status === 'active');
+}
 
 // ---------- Ledger integrity ----------
 
@@ -207,6 +249,21 @@ export function setUserRole(userId: string, role: UserRole): void {
 export function setAvailableWithdrawal(userId: string, amount: number): void {
   const user = store.users.get(userId);
   if (user) user.availableWithdrawal = amount;
+}
+
+export function updateUserName(userId: string, name: string): void {
+  const user = store.users.get(userId);
+  if (user) user.name = name;
+}
+
+export function updateUserPassword(userId: string, passwordHash: string): void {
+  const user = store.users.get(userId);
+  if (user) user.passwordHash = passwordHash;
+}
+
+export function setWithdrawalAddress(userId: string, address: string): void {
+  const user = store.users.get(userId);
+  if (user) user.withdrawalAddress = address;
 }
 
 export function getAllUsers(): User[] {

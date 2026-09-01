@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   ArrowLeft,
   AlertCircle,
@@ -10,19 +10,20 @@ import {
   Info,
   Loader,
   ShieldCheck,
+  TrendingUp,
   Wallet,
 } from 'lucide-react';
-import { api, authApi } from '../../api/client';
+import { api, authApi, formatCurrency, type ReinvestSummary } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import './DashboardPages.css';
 import './DepositPage.css';
 
 const depositPlans = [
-  { rank: '🥉', name: 'Bronze', deposit: '$20 – $499', daily: '3%', duration: '50 Working Days' },
-  { rank: '🥈', name: 'Silver', deposit: '$500 – $1,499', daily: '5%', duration: '100 Working Days' },
-  { rank: '💎', name: 'Diamond', deposit: '$1,500 – $2,499', daily: '7%', duration: '150 Working Days' },
-  { rank: '🥇', name: 'Gold', deposit: '$2,500 – $4,999', daily: '10%', duration: '200 Working Days' },
-  { rank: '👑', name: 'Rhodium', deposit: '$5,000+', daily: '20%', duration: '250 Working Days' },
+  { rank: '🥉', name: 'Bronze', deposit: '$20 – $499', daily: '5%', duration: '50 Working Days' },
+  { rank: '🥈', name: 'Silver', deposit: '$500 – $1,499', daily: '7%', duration: '100 Working Days' },
+  { rank: '💎', name: 'Diamond', deposit: '$1,500 – $2,499', daily: '10%', duration: '150 Working Days' },
+  { rank: '🥇', name: 'Gold', deposit: '$2,500 – $4,999', daily: '20%', duration: '200 Working Days' },
+  { rank: '👑', name: 'Rhodium', deposit: '$5,000+', daily: '30%', duration: '250 Working Days' },
 ];
 
 /**
@@ -185,6 +186,39 @@ export default function DepositPage() {
   };
 
   const isKycApproved = user?.kycStatus === 'APPROVED';
+
+  // --- Reinvest profit into capital ---
+  const [reinvestSummary, setReinvestSummary] = useState<ReinvestSummary | null>(null);
+  const [reinvestAmount, setReinvestAmount] = useState('');
+  const [reinvestLoading, setReinvestLoading] = useState(false);
+  const [reinvestMsg, setReinvestMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    if (isKycApproved) {
+      api.getReinvestSummary().then(setReinvestSummary).catch(() => {});
+    }
+  }, [isKycApproved]);
+
+  const handleReinvest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsed = Number(reinvestAmount);
+    if (!reinvestAmount || Number.isNaN(parsed) || parsed <= 0) {
+      setReinvestMsg({ ok: false, text: 'Please enter the profit amount you wish to reinvest.' });
+      return;
+    }
+    setReinvestLoading(true);
+    setReinvestMsg(null);
+    try {
+      const res = await api.reinvestProfit(parsed);
+      setReinvestMsg({ ok: true, text: res.message });
+      setReinvestAmount('');
+      api.getReinvestSummary().then(setReinvestSummary).catch(() => {});
+    } catch (err) {
+      setReinvestMsg({ ok: false, text: err instanceof Error ? err.message : 'Could not submit your reinvestment request.' });
+    } finally {
+      setReinvestLoading(false);
+    }
+  };
 
   return (
     <>
@@ -545,6 +579,81 @@ export default function DepositPage() {
               </a>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Reinvest profit into initial capital (admin-approved) */}
+      {isKycApproved && (
+        <div className="card" style={{ maxWidth: '680px', margin: '24px auto 0', borderTop: '3px solid var(--gold)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+            <TrendingUp size={20} style={{ color: 'var(--gold)' }} />
+            <h3 className="dash-section-title" style={{ margin: 0 }}>Reinvest Profit</h3>
+          </div>
+          <p style={{ fontSize: 13, color: 'var(--gray-400)', lineHeight: 1.6, margin: '0 0 16px' }}>
+            Made a profit? Move part of it into your initial capital to grow your investment plan.
+            Reinvestments are credited only after an admin approves the request — just like a deposit.
+          </p>
+
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <div style={{ fontSize: 11, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: 1 }}>Available Profit</div>
+              <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--green)' }}>
+                {formatCurrency(reinvestSummary?.availableProfit ?? 0)}
+              </div>
+            </div>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <div style={{ fontSize: 11, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: 1 }}>Already Reinvested</div>
+              <div style={{ fontSize: 20, fontWeight: 700 }}>{formatCurrency(reinvestSummary?.reinvested ?? 0)}</div>
+            </div>
+          </div>
+
+          <form onSubmit={handleReinvest}>
+            <div className="form-group">
+              <label>Amount to Reinvest (USD)</label>
+              <input
+                className="form-control"
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="any"
+                placeholder="e.g. 250"
+                value={reinvestAmount}
+                onChange={(e) => setReinvestAmount(e.target.value)}
+                disabled={reinvestLoading || (reinvestSummary?.availableProfit ?? 0) <= 0}
+                style={{ fontSize: '16px', height: '50px' }}
+              />
+            </div>
+            {reinvestMsg && (
+              <p className={reinvestMsg.ok ? 'login-success' : 'login-error'} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+                {reinvestMsg.ok ? <CheckCircle size={14} /> : <AlertCircle size={14} />} {reinvestMsg.text}
+              </p>
+            )}
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={reinvestLoading || (reinvestSummary?.availableProfit ?? 0) <= 0}
+              style={{ width: '100%', justifyContent: 'center', padding: '13px' }}
+            >
+              {reinvestLoading ? <Loader size={16} className="spin" /> : <TrendingUp size={16} />}
+              {reinvestLoading ? 'Submitting…' : 'Request Reinvestment'}
+            </button>
+            {(reinvestSummary?.reinvestments.length ?? 0) > 0 && (
+              <div style={{ marginTop: 16, fontSize: 13 }}>
+                <div style={{ color: 'var(--gray-400)', marginBottom: 6 }}>Your reinvestment requests:</div>
+                {reinvestSummary!.reinvestments.slice(0, 5).map((r) => (
+                  <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--glass-border)' }}>
+                    <span style={{ color: 'var(--gray-400)' }}>{new Date(r.date).toLocaleDateString()} · {r.id}</span>
+                    <span>
+                      <strong>{formatCurrency(r.amount)}</strong>{' '}
+                      <span style={{ color: r.status === 'Completed' ? 'var(--green)' : r.status === 'Cancelled' ? 'var(--red, #ef4444)' : 'var(--gold)' }}>
+                        {r.status}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </form>
         </div>
       )}
     </>

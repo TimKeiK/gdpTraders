@@ -23,6 +23,7 @@ const TYPE_PILL: Record<string, string> = {
   Trade: 'pill-purple',
   Fee: 'pill-amber',
   'Performance Fee': 'pill-amber',
+  Reinvest: 'pill-amber',
 };
 
 export default function AdminTransactions() {
@@ -98,7 +99,7 @@ export default function AdminTransactions() {
     }
   };
 
-  const processingCount = txns.filter((t) => t.type === 'Deposit' && t.status === 'Processing').length;
+  const processingCount = txns.filter((t) => (t.type === 'Deposit' || t.type === 'Reinvest') && t.status === 'Processing').length;
 
   return (
     <>
@@ -160,12 +161,12 @@ export default function AdminTransactions() {
                   <td><span className={`admin-pill ${STATUS_PILL[t.status] || 'pill-gray'}`}>{t.status}</span></td>
                   <td className="mono">{new Date(t.date).toLocaleString()}</td>
                   <td>
-                    {t.type === 'Deposit' && t.status !== 'Completed' && t.status !== 'Cancelled' ? (
+                    {(t.type === 'Deposit' || t.type === 'Reinvest') && t.status !== 'Completed' && t.status !== 'Cancelled' ? (
                       <div style={{ display: 'flex', gap: 6 }}>
                         <button className="admin-btn green" onClick={() => { setConfirmFor(t); setConfirmAmount(String(t.amount || '')); setError(''); }}>
-                          <CheckCircle size={14} /> Confirm
+                          <CheckCircle size={14} /> {t.type === 'Reinvest' ? 'Approve' : 'Confirm'}
                         </button>
-                        <button className="admin-btn" onClick={() => denyDeposit(t)} disabled={busyId === t.id} title="Deny deposit">
+                        <button className="admin-btn" onClick={() => denyDeposit(t)} disabled={busyId === t.id} title={t.type === 'Reinvest' ? 'Deny reinvestment' : 'Deny deposit'}>
                           <XCircle size={14} /> Deny
                         </button>
                       </div>
@@ -186,15 +187,23 @@ export default function AdminTransactions() {
       {confirmFor && (
         <div className="admin-modal-backdrop" onClick={() => !confirmBusy && setConfirmFor(null)}>
           <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Confirm Deposit</h3>
+            <h3>{confirmFor.type === 'Reinvest' ? 'Approve Reinvestment' : 'Confirm Deposit'}</h3>
             <p className="admin-modal-sub">
               Crediting <strong>{confirmFor.userName}</strong> ({confirmFor.userEmail}) — {confirmFor.id}
             </p>
 
-            <div className="admin-msg" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.25)', color: '#c4b5fd' }}>
-              <Clock size={16} style={{ flexShrink: 0, marginTop: 2 }} />
-              Verify this {confirmFor.asset}{confirmFor.network ? ` (${confirmFor.network})` : ''} transfer on-chain before confirming. Funds will be credited and added to the ledger.
-            </div>
+            {confirmFor.type === 'Reinvest' ? (
+              <div className="admin-msg" style={{ background: 'rgba(234,179,8,0.06)', border: '1px solid rgba(234,179,8,0.3)', color: '#fde68a' }}>
+                <Clock size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+                Approving moves <strong>{formatCurrency(confirmFor.amount)}</strong> of this client&apos;s profit into their initial capital
+                (this may upgrade their investment plan). Denying releases the profit back to the client.
+              </div>
+            ) : (
+              <div className="admin-msg" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.25)', color: '#c4b5fd' }}>
+                <Clock size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+                Verify this {confirmFor.asset}{confirmFor.network ? ` (${confirmFor.network})` : ''} transfer on-chain before confirming. Funds will be credited and added to the ledger.
+              </div>
+            )}
 
             <div className="form-group">
               <label>Amount to credit (USD)</label>

@@ -9,6 +9,7 @@ import {
   LogOut,
   ExternalLink,
   ShieldAlert,
+  Settings,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import './AdminLayout.css';
@@ -20,6 +21,7 @@ const navItems = [
   { to: '/admin/approvals', label: 'Approvals', icon: ShieldCheck },
   { to: '/admin/ledger', label: 'Ledger', icon: BookOpen },
   { to: '/admin/audit-logs', label: 'Audit Logs', icon: ScrollText },
+  { to: '/admin/settings', label: 'Settings', icon: Settings },
 ];
 
 export default function AdminLayout() {

@@ -14,6 +14,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import './DashboardPages.css';
 import './DepositPage.css';
 
+/** Strict minimum withdrawal amount (mirrors backend MIN_WITHDRAWAL). */
+const MIN_WITHDRAWAL = 5;
+
 /** Networks each withdrawable asset supports (USDT has TRC-20 and BEP-20). */
 const WITHDRAW_NETWORKS: Record<
   string,
@@ -43,9 +46,18 @@ export default function WithdrawPage() {
   const [network, setNetwork] = useState('TRC-20');
   const [amount, setAmount] = useState('');
   const [destAddress, setDestAddress] = useState('');
+  const [prefilled, setPrefilled] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [txRef, setTxRef] = useState('');
+
+  // Prefill the saved default withdrawal address once the profile is available.
+  useEffect(() => {
+    if (!prefilled && user?.withdrawalAddress) {
+      setDestAddress(user.withdrawalAddress);
+      setPrefilled(true);
+    }
+  }, [prefilled, user?.withdrawalAddress]);
 
   // Client's own withdrawal history
   const [history, setHistory] = useState<Transaction[]>([]);
@@ -82,6 +94,10 @@ export default function WithdrawPage() {
     const parsedAmount = Number(amount);
     if (!amount || Number.isNaN(parsedAmount) || parsedAmount <= 0) {
       setError('Please enter a valid withdrawal amount.');
+      return;
+    }
+    if (parsedAmount < MIN_WITHDRAWAL) {
+      setError(`The minimum withdrawal is $${MIN_WITHDRAWAL}. Please enter an amount of at least $${MIN_WITHDRAWAL}.`);
       return;
     }
     if (!destAddress.trim()) {
@@ -323,14 +339,17 @@ function WithdrawForm(props: {
               className="form-control"
               type="number"
               inputMode="decimal"
-              min="1"
+              min={MIN_WITHDRAWAL}
               step="any"
-              placeholder="e.g. 2,500"
+              placeholder={`Minimum $${MIN_WITHDRAWAL}`}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               disabled={loading}
               style={{ fontSize: '16px', height: '52px' }}
             />
+            <p className="form-hint" style={{ marginTop: 6, color: 'var(--gold)' }}>
+              <strong>Minimum withdrawal: ${MIN_WITHDRAWAL}.</strong> Requests below ${MIN_WITHDRAWAL} cannot be processed.
+            </p>
           </div>
 
           <div className="form-group">

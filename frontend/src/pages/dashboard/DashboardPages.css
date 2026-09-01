@@ -74,6 +74,63 @@
   color: var(--green);
 }
 
+/* ============ Profile Settings ============ */
+.profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 560px;
+}
+
+.profile-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.profile-msg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 4px 0 0 0;
+}
+
+.profile-msg-ok { color: var(--green); }
+.profile-msg-err { color: var(--red); }
+
+/* Submit buttons in profile settings — aligned with the form, comfortable touch target. */
+.profile-submit {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 42px;
+  margin-top: 4px;
+}
+
+@media (max-width: 640px) {
+  .profile-form-grid {
+    grid-template-columns: 1fr;
+  }
+  /* On small screens the buttons become full-width so they line up with the
+     inputs above them and are easy to tap. */
+  .profile-submit {
+    align-self: stretch;
+    width: 100%;
+    justify-content: center;
+  }
+  /* Keep the plan banner stats readable: tighter gaps, smaller stat text. */
+  .plan-banner-stats {
+    gap: 16px !important;
+  }
+  .plan-banner-stats strong {
+    font-size: 14px;
+  }
+}
+
+
 /* ============ Live Candlestick Chart ============ */
 .chart-card-wrap {
   overflow: hidden;

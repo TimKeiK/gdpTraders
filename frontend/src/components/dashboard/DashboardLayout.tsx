@@ -1,15 +1,16 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Receipt, MessagesSquare, LogOut, User, Plus, ArrowDownToLine, TrendingUp, Bitcoin } from 'lucide-react';
+import { LayoutDashboard, Receipt, MessagesSquare, LogOut, User, Plus, ArrowDownToLine, TrendingUp, Bitcoin, Settings } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import './DashboardLayout.css';
 
-const navItems = [
+const navItems: { to: string; label: string; icon: typeof LayoutDashboard; end?: boolean; sidebarOnly?: boolean }[] = [
   { to: '/dashboard', label: 'Overview', icon: LayoutDashboard, end: true },
   { to: '/dashboard/pnl', label: 'Profit & Loss', icon: TrendingUp },
   { to: '/dashboard/deposit', label: 'Deposit', icon: Plus },
   { to: '/dashboard/withdraw', label: 'Withdraw', icon: ArrowDownToLine },
   { to: '/dashboard/transactions', label: 'Transactions', icon: Receipt },
   { to: '/dashboard/support', label: 'Support', icon: MessagesSquare },
+  { to: '/dashboard/profile', label: 'Profile', icon: User, sidebarOnly: true },
 ];
 
 export default function DashboardLayout() {
@@ -37,7 +38,15 @@ export default function DashboardLayout() {
         </div>
         <div className="dash-mobile-right">
           <span className="dash-mobile-welcome">Welcome, {firstName}</span>
-          <button className="dash-mobile-logout" onClick={handleLogout} title="Sign Out">
+          <button
+            className="dash-mobile-logout"
+            onClick={() => navigate('/dashboard/profile')}
+            title="Profile & Settings"
+            aria-label="Profile & Settings"
+          >
+            <Settings size={18} />
+          </button>
+          <button className="dash-mobile-logout" onClick={handleLogout} title="Sign Out" aria-label="Sign Out">
             <LogOut size={18} />
           </button>
         </div>
@@ -52,12 +61,13 @@ export default function DashboardLayout() {
           <span>GDP<span className="dash-accent">Traders</span></span>
         </div>
 
-        <div className="dash-user-header">
+        <div className="dash-user-header" onClick={() => navigate('/dashboard/profile')} role="button" tabIndex={0} style={{ cursor: 'pointer' }}>
           <div className="dash-user-avatar">
             <User size={20} />
           </div>
           <div className="dash-user-info">
             <span className="dash-user-name">Welcome {firstName}</span>
+            <span className="dash-user-sub" style={{ fontSize: 11, color: 'var(--gray-400)' }}>Profile &amp; settings</span>
           </div>
         </div>
 
@@ -89,7 +99,7 @@ export default function DashboardLayout() {
 
       {/* Bottom Navigation Bar (only visible on mobile/tablet) */}
       <nav className="dash-bottom-nav">
-        {navItems.map((item) => (
+        {navItems.filter((i) => !i.sidebarOnly).map((item) => (
           <NavLink
             key={item.to}
             to={item.to}

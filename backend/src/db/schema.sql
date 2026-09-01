@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
     is_email_verified BOOLEAN DEFAULT FALSE,
     email_verification_token TEXT,
     available_withdrawal NUMERIC(20, 2) DEFAULT 0,
+    withdrawal_address VARCHAR(255),
     created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -71,6 +72,25 @@ CREATE TABLE IF NOT EXISTS transactions (
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS destination_address VARCHAR(255);
 -- Migration for databases created before the network column existed
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS network VARCHAR(20);
+-- Migration for databases created before the withdrawal_address column existed
+ALTER TABLE users ADD COLUMN IF NOT EXISTS withdrawal_address VARCHAR(255);
+
+-- Investments table (one row per confirmed deposit; plan snapshot is immutable)
+-- Plan-snapshot columns are nullable so historical rows created before the
+-- plan logic keep loading until the backfill script populates them
+-- (npm run backfill:investments).
+CREATE TABLE IF NOT EXISTS investments (
+    id VARCHAR(50) PRIMARY KEY,
+    user_id VARCHAR(50) NOT NULL REFERENCES users(id),
+    initial_deposit NUMERIC(20, 2) NOT NULL,
+    assigned_plan VARCHAR(50),
+    daily_rate NUMERIC(10, 2),
+    duration_days INTEGER,
+    start_date TIMESTAMP NOT NULL DEFAULT NOW(),
+    end_date TIMESTAMP,
+    total_expected_return NUMERIC(20, 2),
+    status VARCHAR(20) NOT NULL DEFAULT 'active'
+);
 
 -- Strategy allocations
 CREATE TABLE IF NOT EXISTS strategy_allocations (

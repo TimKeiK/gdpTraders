@@ -5,15 +5,20 @@ import {
   addWithdrawalRequest,
   addAuditLog,
   appendLedgerEntry,
+  findUserById,
   getLedgerForUser,
+  getTransactionsForUser,
   getAllUsers,
   getWalletsForUser,
   getWithdrawalRequests,
+  setAvailableWithdrawal,
   updateWithdrawalRequest,
   type Transaction,
 } from '../db/index.js';
 import { requireAuth, requireKycApproved, requireRole, type AuthenticatedRequest } from '../middleware/auth.js';
 import { SUPPORTED_ASSETS } from '../data/strategies.js';
+import { getPlanByAmount, addWorkingDays, computeExpectedReturn, workingDaysBetween, MIN_DEPOSIT } from '../data/plans.js';
+import { addInvestment, getActiveInvestmentForUser, type Investment } from '../db/index.js';
 
 // ---- Card payment processing ---------------------------------------------
 // Deposits are card-only. Real card charges are processed by Stripe's
@@ -120,6 +125,39 @@ async function retrievePaymentIntent(id: string): Promise<PaymentIntent | null> 
 const router = Router();
 
 router.use(requireAuth);
+
+/** Strict minimum withdrawal amount (USD). */
+export const MIN_WITHDRAWAL = 5;
+
+/**
+ * Records an investment for a confirmed deposit: assigns the plan strictly by
+ * amount (getPlanByAmount), snapshots the daily rate, duration, start/end dates
+ * (end = start + duration in WORKING days, weekends skipped) and the total
+ * expected return, then persists the row in the investments table.
+ * Amounts below the $20 minimum throw — callers must validate first.
+ */
+export async function recordInvestmentForDeposit(userId: string, amount: number): Promise<Investment> {
+  const plan = getPlanByAmount(amount);
+  if (!plan) {
+    throw new Error(`Minimum deposit is $${MIN_DEPOSIT}. No plan available.`);
+  }
+  const startDate = new Date();
+  const endDate = addWorkingDays(startDate, plan.durationDays);
+  const investment: Investment = {
+    id: `INV-${nanoid(10)}`,
+    userId,
+    initialDeposit: amount,
+    assignedPlan: plan.name,
+    dailyRate: plan.dailyRate,
+    durationDays: plan.durationDays,
+    startDate: startDate.toISOString(),
+    endDate: endDate.toISOString(),
+    totalExpectedReturn: computeExpectedReturn(amount, plan.dailyRate, plan.durationDays),
+    status: 'active',
+  };
+  await addInvestment(investment);
+  return investment;
+}
 
 /**
  * Per-asset deposit network registry.
@@ -308,6 +346,11 @@ router.post('/deposit-confirm', requireKycApproved, async (req: AuthenticatedReq
     res.status(400).json({ error: 'Invalid asset or amount' });
     return;
   }
+  // A deposit must map to an investment plan — below $20 there is no plan.
+  if (!getPlanByAmount(amount)) {
+    res.status(400).json({ error: `Minimum deposit is $${MIN_DEPOSIT}. No plan available.` });
+    return;
+  }
 
   const deposit = getDepositNetwork(asset, network);
   const depositAddress = deposit?.address;
@@ -323,6 +366,9 @@ router.post('/deposit-confirm', requireKycApproved, async (req: AuthenticatedReq
     // Record deposit in ledger
     const txId = `TX-${nanoid(12)}`;
     await appendLedgerEntry(userId, asset, amount, 'deposit', txId);
+
+    // Snapshot the investment plan assigned to this confirmed deposit.
+    const investment = await recordInvestmentForDeposit(userId, amount);
 
     // Create transaction record
     const tx: Transaction = {
@@ -350,6 +396,7 @@ router.post('/deposit-confirm', requireKycApproved, async (req: AuthenticatedReq
       transaction: tx,
       depositAddress,
       network: deposit?.network,
+      investment,
       message: `Deposit confirmed. Your ${asset} has been delivered to the custodial wallet and credited to your account.`,
     });
   } catch (err) {
@@ -382,8 +429,11 @@ router.post('/crypto-deposit', requireKycApproved, async (req: AuthenticatedRequ
     res.status(400).json({ error: 'A positive deposit amount is required.' });
     return;
   }
-
-  // Resolve the deposit network (USDT supports TRC-20 and BEP-20).
+  // A deposit must map to an investment plan — below $20 there is no plan.
+  if (!getPlanByAmount(parsedAmount)) {
+    res.status(400).json({ error: `Minimum deposit is $${MIN_DEPOSIT}. No plan available.` });
+    return;
+  }
   const deposit = getDepositNetwork(asset, network);
   if (!deposit) {
     res.status(400).json({
@@ -422,6 +472,202 @@ router.post('/crypto-deposit', requireKycApproved, async (req: AuthenticatedRequ
 });
 
 /**
+ * POST /api/wallet/reinvest-profit
+ * Client requests to reinvest PROFIT (admin-credited gains only) into their
+ * initial capital. Goes through the same admin approval flow as a normal
+ * deposit: it creates a pending 'Reinvest' transaction which an admin must
+ * confirm before the amount moves from profit to capital.
+ *
+ * Server-side validation guarantees the amount never exceeds the client's
+ * un-reinvested admin-credited profit:
+ *   availableProfit = total profit credits - total loss debits - prior reinvestments
+ *
+ * Body: { amount }
+ */
+router.post('/reinvest-profit', requireKycApproved, async (req: AuthenticatedRequest, res: Response) => {
+  const { amount } = req.body as { amount?: number };
+  const user = req.user!;
+  const parsedAmount = Number(amount);
+
+  if (!amount || Number.isNaN(parsedAmount) || parsedAmount <= 0) {
+    res.status(400).json({ error: 'Please enter the profit amount you wish to reinvest.' });
+    return;
+  }
+
+  // Available profit = admin-credited profit − admin debits (losses) −
+  // profit already moved to capital by earlier reinvestments (pending or
+  // approved — a pending request reserves its amount). Withdrawals do not
+  // reduce it (they draw from availableWithdrawal, set by an admin).
+  const [ledger, transactions] = await Promise.all([getLedgerForUser(user.id), getTransactionsForUser(user.id)]);
+  const profit = ledger.filter((e) => e.entryType === 'profit').reduce((s, e) => s + e.amount, 0);
+  const loss = ledger.filter((e) => e.entryType === 'loss').reduce((s, e) => s + Math.abs(e.amount), 0);
+  const reinvested = transactions
+    .filter((t) => t.type === 'Reinvest' && t.status !== 'Cancelled')
+    .reduce((s, t) => s + t.amount, 0);
+  const availableProfit = profit - loss - reinvested;
+
+  if (parsedAmount > availableProfit + 1e-9) {
+    res.status(400).json({
+      error: `You only have ${Math.max(availableProfit, 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} USD of un-reinvested profit available to reinvest.`,
+    });
+    return;
+  }
+
+  const txId = `RX-${Math.floor(100000 + Math.random() * 900000)}`;
+  const tx: Transaction = {
+    id: txId,
+    userId: user.id,
+    date: new Date().toISOString(),
+    type: 'Reinvest',
+    asset: 'USDT',
+    amount: parsedAmount,
+    strategy: 'Profit Reinvestment',
+    status: 'Processing',
+    txHash: `0x${nanoid(16)}`,
+    requiresApproval: true,
+  };
+  await addTransaction(tx);
+  await addAuditLog(user.id, 'REINVEST_REQUESTED', `Client requested to reinvest ${parsedAmount} USD of profit into capital (${txId})`);
+
+  res.status(201).json({
+    transaction: tx,
+    availableProfit: Math.max(availableProfit - parsedAmount, 0),
+    message: 'Reinvestment request submitted. It will be credited to your initial capital once an admin approves it.',
+  });
+});
+
+/**
+ * GET /api/wallet/reinvest-profit
+ * Client's available profit and reinvestment request history.
+ */
+router.get('/reinvest-profit', async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.userId!;
+  const [ledger, txs] = await Promise.all([getLedgerForUser(userId), getTransactionsForUser(userId)]);
+
+  const totalProfit = ledger.filter((e) => e.entryType === 'profit').reduce((s, e) => s + e.amount, 0);
+  const totalLoss = ledger.filter((e) => e.entryType === 'loss').reduce((s, e) => s + Math.abs(e.amount), 0);
+
+  // Profit already committed to reinvestment (pending or completed requests).
+  const reinvestments = txs
+    .filter((t) => t.type === 'Reinvest' && t.status !== 'Cancelled')
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+  const reinvested = reinvestments.reduce((s, t) => s + t.amount, 0);
+
+  res.json({
+    totalProfit,
+    totalLoss,
+    reinvested,
+    availableProfit: Math.max(totalProfit - totalLoss - reinvested, 0),
+    reinvestments: reinvestments.map((t) => ({ id: t.id, date: t.date, amount: t.amount, status: t.status })),
+  });
+});
+
+/**
+ * GET /api/wallet/investment
+ * The client's most recent ACTIVE investment record (read straight from the
+ * investments table). Returns null fields when the client has no active plan.
+ */
+router.get('/investment', async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.userId!;
+  let inv = await getActiveInvestmentForUser(userId);
+
+  // ---- Legacy-client self-heal ----
+  // Clients who deposited BEFORE the investments table existed have no row at
+  // all, so the backfill script cannot help them (it only patches existing
+  // rows). Derive their plan from the immutable ledger's deposit entries —
+  // the historical source of truth for initial capital — and persist the
+  // record once so later reads hit the table like any other client.
+  if (!inv) {
+    const ledger = await getLedgerForUser(userId);
+    const depositEntries = ledger
+      .filter((e) => e.entryType === 'deposit')
+      .slice()
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    const totalDeposited = depositEntries.reduce((sum, e) => sum + e.amount, 0);
+    const plan = getPlanByAmount(totalDeposited);
+    if (plan && depositEntries.length > 0) {
+      const startDate = new Date(depositEntries[0].createdAt);
+      inv = {
+        id: `INV-${nanoid(10)}`,
+        userId,
+        initialDeposit: totalDeposited,
+        assignedPlan: plan.name,
+        dailyRate: plan.dailyRate,
+        durationDays: plan.durationDays,
+        startDate: startDate.toISOString(),
+        endDate: addWorkingDays(startDate, plan.durationDays).toISOString(),
+        totalExpectedReturn: computeExpectedReturn(totalDeposited, plan.dailyRate, plan.durationDays),
+        status: 'active',
+      };
+      await addInvestment(inv);
+      console.warn(
+        `[investment] Legacy client ${userId} had no investments row — derived ${plan.name} ` +
+          `from ${depositEntries.length} ledger deposit(s) totalling ${totalDeposited} and persisted record ${inv.id}.`,
+      );
+    }
+  }
+
+  if (!inv) {
+    res.json({ investment: null, daysRemaining: 0 });
+    return;
+  }
+
+  // ---- Runtime fallback (Task 4) ----
+  // Read the stored plan snapshot first; if the plan columns are NULL (legacy
+  // row the backfill script hasn't reached yet), compute the plan dynamically
+  // from the deposit amount so the dashboard never crashes or shows blanks —
+  // and log a warning so ops know this row needs backfilling.
+  let planName = inv.assignedPlan;
+  let dailyRate = inv.dailyRate;
+  let durationDays = inv.durationDays;
+  let endDate = inv.endDate;
+  let totalExpectedReturn = inv.totalExpectedReturn;
+  if (planName == null || dailyRate == null || durationDays == null) {
+    const fallback = getPlanByAmount(inv.initialDeposit);
+    if (fallback) {
+      planName = fallback.name;
+      dailyRate = fallback.dailyRate;
+      durationDays = fallback.durationDays;
+      endDate = endDate ?? addWorkingDays(new Date(inv.startDate), fallback.durationDays).toISOString();
+      totalExpectedReturn =
+        totalExpectedReturn ?? computeExpectedReturn(inv.initialDeposit, fallback.dailyRate, fallback.durationDays);
+      console.warn(
+        `[investment] Investment ${inv.id} (user ${userId}) has no stored plan snapshot — ` +
+          `serving runtime fallback (${fallback.name}). Run \`npm run backfill:investments\` to backfill this row.`,
+      );
+    } else {
+      console.warn(
+        `[investment] Investment ${inv.id} (user ${userId}) amount ${inv.initialDeposit} is below the ` +
+          `$${MIN_DEPOSIT} plan minimum — no plan available. Row flagged 'under_review'.`,
+      );
+    }
+  }
+
+  // Working days remaining between now and the maturity date (weekends excluded).
+  const now = new Date();
+  const end = endDate ? new Date(endDate) : null;
+  let daysRemaining = 0;
+  if (end && end > now) {
+    daysRemaining = workingDaysBetween(now, end);
+  }
+
+  res.json({
+    investment: {
+      id: inv.id,
+      planName,
+      initialDeposit: inv.initialDeposit,
+      dailyRate,
+      durationDays,
+      startDate: inv.startDate,
+      endDate,
+      totalExpectedReturn,
+      status: inv.status,
+    },
+    daysRemaining,
+  });
+});
+
+/**
  * POST /api/wallet/withdraw
  * Creates a withdrawal request requiring multi-sig approval (Admin + Compliance).
  * Body: { asset, amount, destinationAddress }
@@ -455,6 +701,13 @@ router.post('/withdraw', requireKycApproved, async (req: AuthenticatedRequest, r
   const parsedAmount = Number(amount);
   if (!amount || Number.isNaN(parsedAmount) || parsedAmount <= 0) {
     res.status(400).json({ error: 'Amount must be positive' });
+    return;
+  }
+  // Strict minimum withdrawal — a client cannot withdraw less than MIN_WITHDRAWAL.
+  if (parsedAmount < MIN_WITHDRAWAL) {
+    res.status(400).json({
+      error: `Minimum withdrawal is $${MIN_WITHDRAWAL}. Please enter an amount of at least $${MIN_WITHDRAWAL}.`,
+    });
     return;
   }
   // Basic per-network sanity checks so typos/looped-in wrong-chain addresses
@@ -577,6 +830,12 @@ router.post(
     if (tx.approval1 && tx.approval2) {
       tx.status = 'Completed';
       await appendLedgerEntry(tx.userId, tx.asset, -tx.amount, 'withdrawal', tx.id);
+      // Keep "Available withdrawal" in sync: an executed withdrawal reduces the
+      // amount the client can still withdraw (never below 0).
+      const wUser = await findUserById(tx.userId);
+      if (wUser) {
+        await setAvailableWithdrawal(tx.userId, Math.max((wUser.availableWithdrawal ?? 0) - tx.amount, 0));
+      }
       await addAuditLog(tx.userId, 'WITHDRAWAL_EXECUTED', `${tx.asset} ${tx.amount} withdrawal executed`);
       await updateWithdrawalRequest(tx.id, { status: 'Completed' });
       await addTransaction(tx); // keep the transactions-table copy in sync (pgStore has separate tables)

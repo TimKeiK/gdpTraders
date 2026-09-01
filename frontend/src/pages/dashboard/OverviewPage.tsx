@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Wallet, Plus, ArrowUpRight, AlertCircle, TrendingUp, Landmark, Lock, BarChart3, RefreshCw } from 'lucide-react';
+import { Wallet, Plus, ArrowUpRight, AlertCircle, TrendingUp, Landmark, Lock, BarChart3, RefreshCw, BadgeCheck } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { api, formatCurrency, formatPercent, type PortfolioSummary } from '../../api/client';
+import { api, formatCurrency, formatPercent, type PortfolioSummary, type ActiveInvestment } from '../../api/client';
 import CandlestickChart, { type Candle } from '../../components/CandlestickChart';
 import './DashboardPages.css';
 
@@ -34,6 +34,19 @@ export default function OverviewPage() {
   const [chartError, setChartError] = useState('');
   const [loadError, setLoadError] = useState('');
   const { user } = useAuth();
+  const [investment, setInvestment] = useState<ActiveInvestment | null>(null);
+  const [daysRemaining, setDaysRemaining] = useState(0);
+
+  // Active investment record (straight from the investments table).
+  useEffect(() => {
+    let mounted = true;
+    api.getInvestment().then((res) => {
+      if (!mounted) return;
+      setInvestment(res.investment);
+      setDaysRemaining(res.daysRemaining);
+    }).catch(() => {});
+    return () => { mounted = false; };
+  }, []);
 
   const activeRange = RANGES.find((r) => r.key === range)!;
   const activeCoin = CHART_COINS.find((c) => c.id === coinId)!;
@@ -118,6 +131,57 @@ export default function OverviewPage() {
           </Link>
         </div>
       </div>
+
+      {/* Current Investment Plan — reads directly from the investments table */}
+      {investment && investment.planName ? (
+        <div className="card" style={{ padding: '18px 22px', marginBottom: 20, borderLeft: '3px solid var(--gold)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+            <BadgeCheck size={22} style={{ color: 'var(--gold)', flexShrink: 0 }} />
+            <h3 style={{ margin: 0, fontSize: 16, color: 'var(--gold)' }}>Current Investment Plan: {investment.planName} Plan</h3>
+            <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--gray-400)' }}>
+              {daysRemaining > 0 ? `${daysRemaining} working day${daysRemaining === 1 ? '' : 's'} remaining` : 'Matured'}
+            </span>
+          </div>
+          <div className="plan-banner-stats" style={{ display: 'flex', gap: 24, flexWrap: 'wrap', fontSize: 13 }}>
+            <div>
+              <div style={{ color: 'var(--gray-400)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 }}>Initial Deposit</div>
+              <strong style={{ fontSize: 16 }}>{formatCurrency(investment.initialDeposit)}</strong>
+            </div>
+            <div>
+              <div style={{ color: 'var(--gray-400)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 }}>Daily Accrual</div>
+              <strong style={{ fontSize: 16, color: 'var(--green)' }}>{investment.dailyRate}%</strong>
+            </div>
+            <div>
+              <div style={{ color: 'var(--gray-400)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 }}>Duration</div>
+              <strong style={{ fontSize: 16 }}>{investment.durationDays} working days</strong>
+            </div>
+            <div>
+              <div style={{ color: 'var(--gray-400)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 }}>Expected Total Payout</div>
+              <strong style={{ fontSize: 16, color: 'var(--gold)' }}>{formatCurrency(investment.totalExpectedReturn ?? 0)}</strong>
+            </div>
+            <div>
+              <div style={{ color: 'var(--gray-400)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 }}>Matures On</div>
+              <strong style={{ fontSize: 16 }}>{investment.endDate ? new Date(investment.endDate).toLocaleDateString() : '—'}</strong>
+            </div>
+          </div>
+        </div>
+      ) : investment && investment.status === 'under_review' ? (
+        <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '16px 22px', marginBottom: 20, borderLeft: '3px solid var(--gold)' }}>
+          <BadgeCheck size={22} style={{ color: 'var(--gold)', flexShrink: 0 }} />
+          <p style={{ margin: 0, fontSize: 14, color: 'var(--gray-400)', flex: 1, minWidth: 200 }}>
+            Your deposit of {formatCurrency(investment.initialDeposit)} is under review — it is below the $20 minimum
+            for an investment plan. Please contact support.
+          </p>
+        </div>
+      ) : summary && summary.initialDeposit <= 0 && (
+        <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '16px 22px', marginBottom: 20, borderLeft: '3px solid var(--gold)' }}>
+          <BadgeCheck size={22} style={{ color: 'var(--gold)', flexShrink: 0 }} />
+          <p style={{ margin: 0, fontSize: 14, color: 'var(--gray-400)', flex: 1, minWidth: 200 }}>
+            No investment plan active yet — deposit at least $20 (Bronze Plan minimum) to get started.
+          </p>
+          <Link to="/dashboard/deposit" className="btn btn-sm btn-outline">Deposit</Link>
+        </div>
+      )}
 
       {/* KPI cards */}
       <div className="dash-kpis">

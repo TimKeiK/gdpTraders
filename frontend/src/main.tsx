@@ -31,6 +31,7 @@ import DepositPage from './pages/dashboard/DepositPage';
 import WithdrawPage from './pages/dashboard/WithdrawPage';
 import TransactionsPage from './pages/dashboard/TransactionsPage';
 import SecurityPage from './pages/dashboard/SecurityPage';
+import ProfileSettingsPage from './pages/dashboard/ProfileSettingsPage';
 import TaxPage from './pages/dashboard/TaxPage';
 import SupportPage from './pages/dashboard/SupportPage';
 
@@ -41,6 +42,7 @@ import AdminTransactions from './pages/admin/AdminTransactions';
 import AdminApprovals from './pages/admin/AdminApprovals';
 import AdminLedger from './pages/admin/AdminLedger';
 import AdminAuditLogs from './pages/admin/AdminAuditLogs';
+import AdminSettings from './pages/admin/AdminSettings';
 
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
@@ -70,6 +72,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="withdraw" element={<WithdrawPage />} />
               <Route path="transactions" element={<TransactionsPage />} />
               <Route path="security" element={<SecurityPage />} />
+              <Route path="profile" element={<ProfileSettingsPage />} />
               <Route path="tax" element={<TaxPage />} />
               <Route path="support" element={<SupportPage />} />
             </Route>
@@ -84,6 +87,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="approvals" element={<AdminApprovals />} />
               <Route path="ledger" element={<AdminLedger />} />
               <Route path="audit-logs" element={<AdminAuditLogs />} />
+              <Route path="settings" element={<AdminSettings />} />
             </Route>
           </Route>
 

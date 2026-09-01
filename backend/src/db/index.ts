@@ -27,6 +27,7 @@ export type {
   Transaction,
   StrategyAllocation,
   AuditLogEntry,
+  Investment,
 } from './database.js';
 
 // Re-export all functions from the active store
@@ -41,6 +42,9 @@ export const {
   setEmailVerified,
   setUserRole,
   setAvailableWithdrawal,
+  updateUserName,
+  updateUserPassword,
+  setWithdrawalAddress,
   getAllUsers,
   addWallet,
   getWalletsForUser,
@@ -60,6 +64,9 @@ export const {
   updateWithdrawalRequest,
   getLedgerForUser,
   getAllLedger,
+  addInvestment,
+  getInvestmentsForUser,
+  getActiveInvestmentForUser,
   getDbStats,
 } = store;
 

@@ -9,6 +9,9 @@ import {
   findUserByEmail,
   findUserById,
   setEmailVerified,
+  updateUserName,
+  updateUserPassword,
+  setWithdrawalAddress,
   addAuditLog,
   type User,
 } from '../db/index.js';
@@ -209,6 +212,7 @@ router.post('/login', async (req: Request, res: Response) => {
       name: user.name,
       role: user.role,
       kycStatus: user.kycStatus,
+      withdrawalAddress: user.withdrawalAddress,
     },
   });
 });
@@ -225,8 +229,88 @@ router.get('/profile', requireAuth, (req: AuthenticatedRequest, res: Response) =
     role: user.role,
     kycStatus: user.kycStatus,
     withdrawalCap: user.withdrawalCap,
+    availableWithdrawal: user.availableWithdrawal ?? 0,
+    withdrawalAddress: user.withdrawalAddress ?? null,
     createdAt: user.createdAt,
   });
+});
+
+/**
+ * POST /api/auth/change-password
+ * Lets the authenticated user (client or staff) change their own password.
+ * The current password must be verified before the change is applied.
+ * Body: { currentPassword, newPassword }
+ */
+router.post('/change-password', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const { currentPassword, newPassword } = req.body as {
+    currentPassword?: string;
+    newPassword?: string;
+  };
+  const user = req.user!;
+
+  if (!currentPassword || !newPassword) {
+    res.status(400).json({ error: 'Current and new password are required' });
+    return;
+  }
+  if (typeof newPassword !== 'string' || newPassword.length < MIN_PASSWORD_LENGTH) {
+    res.status(400).json({ error: `New password must be at least ${MIN_PASSWORD_LENGTH} characters` });
+    return;
+  }
+
+  const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!valid) {
+    await addAuditLog(user.id, 'PASSWORD_CHANGE_FAILED', 'Incorrect current password');
+    res.status(400).json({ error: 'Current password is incorrect' });
+    return;
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  await updateUserPassword(user.id, passwordHash);
+  await addAuditLog(user.id, 'PASSWORD_CHANGED', 'User changed their own password');
+
+  res.json({ message: 'Password updated successfully.' });
+});
+
+/**
+ * PATCH /api/auth/profile
+ * Updates editable profile fields for the authenticated user.
+ * Body: { name }
+ */
+router.patch('/profile', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const { name } = req.body as { name?: string };
+  const user = req.user!;
+
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    res.status(400).json({ error: 'Name is required' });
+    return;
+  }
+  const trimmed = name.trim();
+
+  await updateUserName(user.id, trimmed);
+  await addAuditLog(user.id, 'PROFILE_UPDATED', `Display name updated to "${trimmed}"`);
+
+  res.json({ name: trimmed, message: 'Profile updated successfully.' });
+});
+
+/**
+ * PUT /api/auth/withdrawal-address
+ * Saves the constant withdrawal destination address for the client.
+ * Body: { address }
+ */
+router.put('/withdrawal-address', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
+  const { address } = req.body as { address?: string };
+  const user = req.user!;
+
+  if (!address || typeof address !== 'string' || !address.trim()) {
+    res.status(400).json({ error: 'A wallet address is required' });
+    return;
+  }
+  const trimmed = address.trim();
+
+  await setWithdrawalAddress(user.id, trimmed);
+  await addAuditLog(user.id, 'WITHDRAWAL_ADDRESS_UPDATED', `Saved constant withdrawal address ${trimmed}`);
+
+  res.json({ withdrawalAddress: trimmed, message: 'Withdrawal address saved successfully.' });
 });
 
 export default router;

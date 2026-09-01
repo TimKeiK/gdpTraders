@@ -32,6 +32,10 @@ export async function ensureSchema(): Promise<void> {
   await pool.query(
     `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS network VARCHAR(20)`
   );
+  // Client's saved constant withdrawal address (profile settings).
+  await pool.query(
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS withdrawal_address VARCHAR(255)`
+  );
 
   // Email-verification columns (added in the "email verification" change).
   await pool.query(
@@ -72,6 +76,62 @@ export async function ensureSchema(): Promise<void> {
          WHERE l.reference_id = t.id AND l.entry_type = 'withdrawal'
        )`
   );
+
+  // Investments table - one row per confirmed deposit, snapshotting the
+  // assigned plan, daily rate, duration, and expected return at record time.
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS investments (
+       id VARCHAR(50) PRIMARY KEY,
+       user_id VARCHAR(50) NOT NULL REFERENCES users(id),
+       initial_deposit NUMERIC(20, 2) NOT NULL,
+       assigned_plan VARCHAR(50) NOT NULL,
+       daily_rate NUMERIC(10, 2) NOT NULL,
+       duration_days INTEGER NOT NULL,
+       start_date TIMESTAMP NOT NULL DEFAULT NOW(),
+       end_date TIMESTAMP NOT NULL,
+       total_expected_return NUMERIC(20, 2) NOT NULL,
+       status VARCHAR(20) NOT NULL DEFAULT 'active'
+     )`
+  );
+
+  // ---- Legacy investments migration (idempotent) ----
+  // Historical tables may predate the plan-snapshot columns and may use older
+  // column names (amount → initial_deposit, created_at → start_date).
+  await pool.query(`DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'investments' AND column_name = 'amount')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'investments' AND column_name = 'initial_deposit') THEN
+      ALTER TABLE investments RENAME COLUMN amount TO initial_deposit;
+    END IF;
+  END $$;`);
+  await pool.query(`DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'investments' AND column_name = 'start_date')
+       AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'investments' AND column_name = 'created_at') THEN
+      ALTER TABLE investments ADD COLUMN start_date TIMESTAMP;
+      UPDATE investments SET start_date = created_at WHERE start_date IS NULL;
+      ALTER TABLE investments ALTER COLUMN start_date SET NOT NULL;
+    END IF;
+  END $$;`);
+
+  // Plan-snapshot columns are added NULLABLE so existing rows keep loading
+  // until the backfill script populates them (run: npm run backfill:investments).
+  await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS assigned_plan VARCHAR(50)`);
+  await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS daily_rate NUMERIC(10, 2)`);
+  await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS duration_days INTEGER`);
+  await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS end_date TIMESTAMP`);
+  await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS total_expected_return NUMERIC(20, 2)`);
+  await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active'`);
+  // Relax NOT NULL on the plan columns of older tables so historical rows
+  // (which have no plan snapshot yet) do not break reads or the backfill.
+  await pool.query(`DO $$ DECLARE c text; BEGIN
+    FOREACH c IN ARRAY ARRAY['assigned_plan','daily_rate','duration_days','end_date','total_expected_return'] LOOP
+      IF EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_name = 'investments' AND column_name = c AND is_nullable = 'NO') THEN
+        EXECUTE format('ALTER TABLE investments ALTER COLUMN %I DROP NOT NULL', c);
+      END IF;
+    END LOOP;
+  END $$;`);
+  // Historical rows default to 'active' so old users still see a plan.
+  await pool.query(`UPDATE investments SET status = 'active' WHERE status IS NULL`);
 }
 
 // ---------- Types (re-exported from database.ts) ----------
@@ -92,6 +152,7 @@ export interface User {
   isEmailVerified: boolean;
   emailVerificationToken: string | null;
   availableWithdrawal: number;
+  withdrawalAddress?: string;
   createdAt: string;
 }
 
@@ -102,6 +163,23 @@ export interface Wallet {
   address: string;
   walletType: WalletType;
   createdAt: string;
+}
+
+/** One row per confirmed deposit, snapshotting the assigned plan.
+ *  Plan fields are nullable so historical rows created before the plan logic
+ *  still load; the API layer applies a runtime fallback (getPlanByAmount) and
+ *  warns until the backfill script populates them. */
+export interface Investment {
+  id: string;
+  userId: string;
+  initialDeposit: number;
+  assignedPlan: string | null;
+  dailyRate: number | null;
+  durationDays: number | null;
+  startDate: string;
+  endDate: string | null;
+  totalExpectedReturn: number | null;
+  status: string;
 }
 
 export interface DepositAddress {
@@ -127,7 +205,7 @@ export interface Transaction {
   id: string;
   userId: string;
   date: string;
-  type: 'Deposit' | 'Withdrawal' | 'Trade' | 'Fee' | 'Performance Fee';
+  type: 'Deposit' | 'Withdrawal' | 'Trade' | 'Fee' | 'Performance Fee' | 'Reinvest';
   asset: string;
   amount: number;
   strategy: string;
@@ -235,11 +313,11 @@ export async function verifyLedgerIntegrity(): Promise<{ valid: boolean; checked
 
 export async function addUser(user: User): Promise<void> {
   await pool.query(
-    `INSERT INTO users (id, email, password_hash, name, role, kyc_status, ip_whitelist, withdrawal_cap, is_email_verified, email_verification_token, available_withdrawal, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    `INSERT INTO users (id, email, password_hash, name, role, kyc_status, ip_whitelist, withdrawal_cap, is_email_verified, email_verification_token, available_withdrawal, withdrawal_address, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      ON CONFLICT (id) DO NOTHING`,
     [user.id, user.email, user.passwordHash, user.name, user.role, user.kycStatus,
-     user.ipWhitelist, user.withdrawalCap, user.isEmailVerified, user.emailVerificationToken, user.availableWithdrawal ?? 0, user.createdAt]
+     user.ipWhitelist, user.withdrawalCap, user.isEmailVerified, user.emailVerificationToken, user.availableWithdrawal ?? 0, user.withdrawalAddress ?? null, user.createdAt]
   );
 }
 
@@ -281,6 +359,67 @@ export async function setAvailableWithdrawal(userId: string, amount: number): Pr
   );
 }
 
+// ---------- Investments ----------
+
+export async function addInvestment(inv: Investment): Promise<void> {
+  await pool.query(
+    `INSERT INTO investments (id, user_id, initial_deposit, assigned_plan, daily_rate, duration_days, start_date, end_date, total_expected_return, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     ON CONFLICT (id) DO NOTHING`,
+    [inv.id, inv.userId, inv.initialDeposit, inv.assignedPlan, inv.dailyRate,
+     inv.durationDays, inv.startDate, inv.endDate, inv.totalExpectedReturn, inv.status]
+  );
+}
+
+function mapInvestment(r: any): Investment {
+  // Plan-snapshot columns may be NULL on legacy rows (pre-plan-logic history).
+  return {
+    id: r.id,
+    userId: r.user_id,
+    initialDeposit: Number(r.initial_deposit ?? r.amount ?? 0),
+    assignedPlan: r.assigned_plan ?? null,
+    dailyRate: r.daily_rate != null ? Number(r.daily_rate) : null,
+    durationDays: r.duration_days != null ? Number(r.duration_days) : null,
+    startDate: new Date(r.start_date ?? r.created_at ?? Date.now()).toISOString(),
+    endDate: r.end_date ? new Date(r.end_date).toISOString() : null,
+    totalExpectedReturn: r.total_expected_return != null ? Number(r.total_expected_return) : null,
+    status: r.status ?? 'active',
+  };
+}
+
+/** All investments for a user, newest first. */
+export async function getInvestmentsForUser(userId: string): Promise<Investment[]> {
+  const res = await pool.query(
+    'SELECT * FROM investments WHERE user_id = $1 ORDER BY start_date DESC',
+    [userId]
+  );
+  return res.rows.map(mapInvestment);
+}
+
+/** The user's most recent active investment, or undefined. */
+export async function getActiveInvestmentForUser(userId: string): Promise<Investment | undefined> {
+  const res = await pool.query(
+    `SELECT * FROM investments WHERE user_id = $1 AND status = 'active' ORDER BY start_date DESC LIMIT 1`,
+    [userId]
+  );
+  return res.rows.length > 0 ? mapInvestment(res.rows[0]) : undefined;
+}
+
+export async function updateUserName(userId: string, name: string): Promise<void> {
+  await pool.query('UPDATE users SET name = $1 WHERE id = $2', [name, userId]);
+}
+
+export async function updateUserPassword(userId: string, passwordHash: string): Promise<void> {
+  await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [passwordHash, userId]);
+}
+
+export async function setWithdrawalAddress(userId: string, address: string): Promise<void> {
+  await pool.query(
+    'UPDATE users SET withdrawal_address = $1 WHERE id = $2',
+    [address, userId]
+  );
+}
+
 export async function getAllUsers(): Promise<User[]> {
   const res = await pool.query('SELECT * FROM users');
   return res.rows.map(mapUser);
@@ -299,6 +438,7 @@ function mapUser(row: any): User {
     isEmailVerified: row.is_email_verified,
     emailVerificationToken: row.email_verification_token,
     availableWithdrawal: Number(row.available_withdrawal ?? 0),
+    withdrawalAddress: row.withdrawal_address ?? undefined,
     createdAt: row.created_at,
   };
 }
