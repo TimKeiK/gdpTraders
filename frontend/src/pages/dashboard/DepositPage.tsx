@@ -19,11 +19,11 @@ import './DashboardPages.css';
 import './DepositPage.css';
 
 const depositPlans = [
-  { rank: '🥉', name: 'Bronze', deposit: '$20 – $499', daily: '5%', duration: '50 Working Days' },
-  { rank: '🥈', name: 'Silver', deposit: '$500 – $1,499', daily: '7%', duration: '100 Working Days' },
-  { rank: '💎', name: 'Diamond', deposit: '$1,500 – $2,499', daily: '10%', duration: '150 Working Days' },
-  { rank: '🥇', name: 'Gold', deposit: '$2,500 – $4,999', daily: '20%', duration: '200 Working Days' },
-  { rank: '👑', name: 'Rhodium', deposit: '$5,000+', daily: '30%', duration: '250 Working Days' },
+  { rank: '🥉', name: 'Bronze', deposit: '$20 – $499', daily: '3%', duration: '50 Working Days' },
+  { rank: '🥈', name: 'Silver', deposit: '$500 – $1,499', daily: '5%', duration: '100 Working Days' },
+  { rank: '💎', name: 'Diamond', deposit: '$1,500 – $2,499', daily: '7%', duration: '150 Working Days' },
+  { rank: '🥇', name: 'Gold', deposit: '$2,500 – $4,999', daily: '10%', duration: '200 Working Days' },
+  { rank: '👑', name: 'Rhodium', deposit: '$5,000+', daily: '20%', duration: '250 Working Days' },
 ];
 
 /**

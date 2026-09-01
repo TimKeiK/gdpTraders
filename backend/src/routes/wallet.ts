@@ -612,35 +612,43 @@ router.get('/investment', async (req: AuthenticatedRequest, res: Response) => {
     return;
   }
 
-  // ---- Runtime fallback (Task 4) ----
+    // ---- Runtime fallback (Task 4) ----
   // Read the stored plan snapshot first; if the plan columns are NULL (legacy
-  // row the backfill script hasn't reached yet), compute the plan dynamically
-  // from the deposit amount so the dashboard never crashes or shows blanks —
-  // and log a warning so ops know this row needs backfilling.
+  // row the backfill script hasn't reached yet) OR the stored rate no longer
+  // matches the live plan definition (plan rates may have been updated since
+  // the row was written), compute the plan dynamically from the deposit amount
+  // so the dashboard always shows current rates — and log a warning so ops
+  // know this row should be backfilled.
   let planName = inv.assignedPlan;
   let dailyRate = inv.dailyRate;
   let durationDays = inv.durationDays;
   let endDate = inv.endDate;
   let totalExpectedReturn = inv.totalExpectedReturn;
-  if (planName == null || dailyRate == null || durationDays == null) {
-    const fallback = getPlanByAmount(inv.initialDeposit);
-    if (fallback) {
-      planName = fallback.name;
-      dailyRate = fallback.dailyRate;
-      durationDays = fallback.durationDays;
-      endDate = endDate ?? addWorkingDays(new Date(inv.startDate), fallback.durationDays).toISOString();
-      totalExpectedReturn =
-        totalExpectedReturn ?? computeExpectedReturn(inv.initialDeposit, fallback.dailyRate, fallback.durationDays);
-      console.warn(
-        `[investment] Investment ${inv.id} (user ${userId}) has no stored plan snapshot — ` +
-          `serving runtime fallback (${fallback.name}). Run \`npm run backfill:investments\` to backfill this row.`,
-      );
-    } else {
-      console.warn(
-        `[investment] Investment ${inv.id} (user ${userId}) amount ${inv.initialDeposit} is below the ` +
-          `$${MIN_DEPOSIT} plan minimum — no plan available. Row flagged 'under_review'.`,
-      );
-    }
+  const fallback = getPlanByAmount(inv.initialDeposit);
+  if (
+    fallback &&
+    (planName == null ||
+      dailyRate == null ||
+      durationDays == null ||
+      dailyRate !== fallback.dailyRate ||
+      durationDays !== fallback.durationDays ||
+      planName !== fallback.name)
+  ) {
+    const wasNull = planName == null || dailyRate == null || durationDays == null;
+    planName = fallback.name;
+    dailyRate = fallback.dailyRate;
+    durationDays = fallback.durationDays;
+    endDate = endDate ?? addWorkingDays(new Date(inv.startDate), fallback.durationDays).toISOString();
+    totalExpectedReturn =
+      totalExpectedReturn ?? computeExpectedReturn(inv.initialDeposit, fallback.dailyRate, fallback.durationDays);
+    console.warn(
+      `[investment] Investment ${inv.id} (user ${userId}) ${wasNull ? 'has no stored plan snapshot' : `stored ${inv.assignedPlan}/${inv.dailyRate}% which differs from live plan`} — serving current rates (${fallback.name}/${fallback.dailyRate}%). Run \`npm run backfill:investments\` to backfill this row.`,
+    );
+  } else if (!fallback) {
+    console.warn(
+      `[investment] Investment ${inv.id} (user ${userId}) amount ${inv.initialDeposit} is below the ` +
+        `$${MIN_DEPOSIT} plan minimum — no plan available. Row flagged 'under_review'.`,
+    );
   }
 
   // Working days remaining between now and the maturity date (weekends excluded).

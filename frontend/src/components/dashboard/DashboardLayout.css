@@ -252,7 +252,7 @@
     box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
   }
 
-  .dash-bottom-nav-link {
+    .dash-bottom-nav-link {
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -260,13 +260,26 @@
     gap: 4px;
     color: var(--gray-400);
     text-decoration: none;
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 500;
     flex: 1;
     height: 100%;
-    min-width: 48px;
-    border-radius: var(--radius-sm);
+    min-width: 44px;
+        border-radius: var(--radius-sm);
     transition: all 0.2s ease;
+  }
+
+  /* Compact nav for very narrow screens (< 360px) — smaller labels, tighter gaps */
+  @media (max-width: 360px) {
+    .dash-bottom-nav-link {
+      font-size: 8px;
+      gap: 2px;
+    }
+
+    .dash-bottom-nav-icon {
+      width: 18px;
+      height: 18px;
+    }
   }
 
   .dash-bottom-nav-icon {

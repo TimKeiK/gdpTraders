@@ -14,11 +14,11 @@ export interface InvestmentPlan {
 }
 
 export const INVESTMENT_PLANS: InvestmentPlan[] = [
-  { name: 'Bronze Plan', icon: '🥉', min: 20, max: 499, dailyAccrual: 5, duration: 50 },
-  { name: 'Silver Plan', icon: '🥈', min: 500, max: 1499, dailyAccrual: 7, duration: 100 },
-  { name: 'Diamond Plan', icon: '💎', min: 1500, max: 2499, dailyAccrual: 10, duration: 150 },
-  { name: 'Gold Plan', icon: '🥇', min: 2500, max: 4999, dailyAccrual: 20, duration: 200 },
-  { name: 'Rhodium Plan', icon: '👑', min: 5000, max: null, dailyAccrual: 30, duration: 250 },
+  { name: 'Bronze Plan', icon: '🥉', min: 20, max: 499, dailyAccrual: 3, duration: 50 },
+  { name: 'Silver Plan', icon: '🥈', min: 500, max: 1499, dailyAccrual: 5, duration: 100 },
+  { name: 'Diamond Plan', icon: '💎', min: 1500, max: 2499, dailyAccrual: 7, duration: 150 },
+  { name: 'Gold Plan', icon: '🥇', min: 2500, max: 4999, dailyAccrual: 10, duration: 200 },
+  { name: 'Rhodium Plan', icon: '👑', min: 5000, max: null, dailyAccrual: 20, duration: 250 },
 ];
 
 export const MIN_DEPOSIT = INVESTMENT_PLANS[0].min;

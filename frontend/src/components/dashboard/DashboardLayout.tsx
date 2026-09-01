@@ -1,16 +1,19 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Receipt, MessagesSquare, LogOut, User, Plus, ArrowDownToLine, TrendingUp, Bitcoin, Settings } from 'lucide-react';
+import { LayoutDashboard, Receipt, MessagesSquare, LogOut, User, Plus, ArrowDownToLine, TrendingUp, Bitcoin } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import './DashboardLayout.css';
 
-const navItems: { to: string; label: string; icon: typeof LayoutDashboard; end?: boolean; sidebarOnly?: boolean }[] = [
+  const navItems: { to: string; label: string; icon: typeof LayoutDashboard; end?: boolean; sidebarOnly?: boolean }[] = [
   { to: '/dashboard', label: 'Overview', icon: LayoutDashboard, end: true },
   { to: '/dashboard/pnl', label: 'Profit & Loss', icon: TrendingUp },
   { to: '/dashboard/deposit', label: 'Deposit', icon: Plus },
   { to: '/dashboard/withdraw', label: 'Withdraw', icon: ArrowDownToLine },
   { to: '/dashboard/transactions', label: 'Transactions', icon: Receipt },
   { to: '/dashboard/support', label: 'Support', icon: MessagesSquare },
-  { to: '/dashboard/profile', label: 'Profile', icon: User, sidebarOnly: true },
+  // Profile is now in the mobile bottom nav (was sidebarOnly before, which hid it on
+  // small screens). It stays in the sidebar too, so on desktop the sidebar link wins
+  // the `active` highlight and the bottom nav is simply not rendered there.
+  { to: '/dashboard/profile', label: 'Profile', icon: User },
 ];
 
 export default function DashboardLayout() {
@@ -35,17 +38,9 @@ export default function DashboardLayout() {
           <span className="dash-brand-text">
             GDP<span className="dash-accent">Traders</span>
           </span>
-        </div>
+                </div>
         <div className="dash-mobile-right">
           <span className="dash-mobile-welcome">Welcome, {firstName}</span>
-          <button
-            className="dash-mobile-logout"
-            onClick={() => navigate('/dashboard/profile')}
-            title="Profile & Settings"
-            aria-label="Profile & Settings"
-          >
-            <Settings size={18} />
-          </button>
           <button className="dash-mobile-logout" onClick={handleLogout} title="Sign Out" aria-label="Sign Out">
             <LogOut size={18} />
           </button>

@@ -20,11 +20,11 @@ export interface InvestmentPlan {
 }
 
 export const INVESTMENT_PLANS: InvestmentPlan[] = [
-  { name: 'Bronze', min: 20, max: 499, dailyRate: 5, durationDays: 50 },
-  { name: 'Silver', min: 500, max: 1499, dailyRate: 7, durationDays: 100 },
-  { name: 'Diamond', min: 1500, max: 2499, dailyRate: 10, durationDays: 150 },
-  { name: 'Gold', min: 2500, max: 4999, dailyRate: 20, durationDays: 200 },
-  { name: 'Rhodium', min: 5000, max: null, dailyRate: 30, durationDays: 250 },
+  { name: 'Bronze', min: 20, max: 499, dailyRate: 3, durationDays: 50 },
+  { name: 'Silver', min: 500, max: 1499, dailyRate: 5, durationDays: 100 },
+  { name: 'Diamond', min: 1500, max: 2499, dailyRate: 7, durationDays: 150 },
+  { name: 'Gold', min: 2500, max: 4999, dailyRate: 10, durationDays: 200 },
+  { name: 'Rhodium', min: 5000, max: null, dailyRate: 20, durationDays: 250 },
 ];
 
 /** The minimum deposit that maps to any plan. */
