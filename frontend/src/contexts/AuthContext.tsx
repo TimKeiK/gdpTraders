@@ -13,6 +13,8 @@ interface User {
   role: string;
   kycStatus: string;
   withdrawalAddress?: string | null;
+  withdrawalNetwork?: string | null;
+  withdrawalAsset?: string | null;
   withdrawalCap?: number;
   availableWithdrawal?: number;
 }
@@ -84,7 +86,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       name: res.user.name,
       role: res.user.role,
       kycStatus: res.user.kycStatus,
-      withdrawalAddress: (res.user as User).withdrawalAddress,
+            withdrawalAddress: (res.user as User).withdrawalAddress,
+      withdrawalNetwork: (res.user as User).withdrawalNetwork,
+      withdrawalAsset: (res.user as User).withdrawalAsset,
     });
   };
 
@@ -107,7 +111,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         name: profile.name,
         role: profile.role,
         kycStatus: profile.kycStatus,
-        withdrawalAddress: (profile as User).withdrawalAddress,
+                withdrawalAddress: (profile as User).withdrawalAddress,
+        withdrawalNetwork: (profile as User).withdrawalNetwork,
+        withdrawalAsset: (profile as User).withdrawalAsset,
         withdrawalCap: (profile as User).withdrawalCap,
         availableWithdrawal: (profile as User).availableWithdrawal,
       });

@@ -32,9 +32,16 @@ export async function ensureSchema(): Promise<void> {
   await pool.query(
     `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS network VARCHAR(20)`
   );
-  // Client's saved constant withdrawal address (profile settings).
+    // Client's saved constant withdrawal address (profile settings).
   await pool.query(
     `ALTER TABLE users ADD COLUMN IF NOT EXISTS withdrawal_address VARCHAR(255)`
+  );
+  // Default network/asset for the saved constant withdrawal address (profile settings).
+  await pool.query(
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS withdrawal_network VARCHAR(20)`
+  );
+  await pool.query(
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS withdrawal_asset VARCHAR(10)`
   );
 
   // Email-verification columns (added in the "email verification" change).
@@ -148,11 +155,13 @@ export interface User {
   role: UserRole;
   kycStatus: KYCStatus;
   ipWhitelist: string[];
-  withdrawalCap: number;
+    withdrawalCap: number;
   isEmailVerified: boolean;
   emailVerificationToken: string | null;
   availableWithdrawal: number;
   withdrawalAddress?: string;
+  withdrawalNetwork?: string | null;
+  withdrawalAsset?: string | null;
   createdAt: string;
 }
 
@@ -313,11 +322,13 @@ export async function verifyLedgerIntegrity(): Promise<{ valid: boolean; checked
 
 export async function addUser(user: User): Promise<void> {
   await pool.query(
-    `INSERT INTO users (id, email, password_hash, name, role, kyc_status, ip_whitelist, withdrawal_cap, is_email_verified, email_verification_token, available_withdrawal, withdrawal_address, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    `INSERT INTO users (id, email, password_hash, name, role, kyc_status, ip_whitelist, withdrawal_cap, is_email_verified, email_verification_token, available_withdrawal, withdrawal_address, withdrawal_network, withdrawal_asset, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
      ON CONFLICT (id) DO NOTHING`,
     [user.id, user.email, user.passwordHash, user.name, user.role, user.kycStatus,
-     user.ipWhitelist, user.withdrawalCap, user.isEmailVerified, user.emailVerificationToken, user.availableWithdrawal ?? 0, user.withdrawalAddress ?? null, user.createdAt]
+     user.ipWhitelist, user.withdrawalCap, user.isEmailVerified, user.emailVerificationToken,
+     user.availableWithdrawal ?? 0, user.withdrawalAddress ?? null,
+     user.withdrawalNetwork ?? null, user.withdrawalAsset ?? null, user.createdAt]
   );
 }
 
@@ -420,6 +431,21 @@ export async function setWithdrawalAddress(userId: string, address: string): Pro
   );
 }
 
+/** Saves the client's default withdrawal coin + network (profile settings). */
+export async function setDefaultWithdrawalInfo(
+  userId: string,
+  address: string,
+  network?: string,
+  asset?: string
+): Promise<void> {
+  const net = network ?? null;
+  const a = asset ?? null;
+  await pool.query(
+    'UPDATE users SET withdrawal_address = $1, withdrawal_network = $2, withdrawal_asset = $3 WHERE id = $4',
+    [address, net, a, userId]
+  );
+}
+
 export async function getAllUsers(): Promise<User[]> {
   const res = await pool.query('SELECT * FROM users');
   return res.rows.map(mapUser);
@@ -439,6 +465,8 @@ function mapUser(row: any): User {
     emailVerificationToken: row.email_verification_token,
     availableWithdrawal: Number(row.available_withdrawal ?? 0),
     withdrawalAddress: row.withdrawal_address ?? undefined,
+    withdrawalNetwork: row.withdrawal_network ?? null,
+    withdrawalAsset: row.withdrawal_asset ?? null,
     createdAt: row.created_at,
   };
 }

@@ -13,8 +13,10 @@ CREATE TABLE IF NOT EXISTS users (
     withdrawal_cap NUMERIC(20, 2) DEFAULT 100000,
     is_email_verified BOOLEAN DEFAULT FALSE,
     email_verification_token TEXT,
-    available_withdrawal NUMERIC(20, 2) DEFAULT 0,
+        available_withdrawal NUMERIC(20, 2) DEFAULT 0,
     withdrawal_address VARCHAR(255),
+    withdrawal_network VARCHAR(20),   -- default network for the saved withdrawal address (e.g. TRC-20, BEP-20)
+    withdrawal_asset VARCHAR(10),     -- default coin for withdrawals (e.g. USDT, BTC, ETH)
     created_at TIMESTAMP DEFAULT NOW()
 );
 

@@ -109,6 +109,8 @@ export interface LoginResponse {
     role: string;
     kycStatus: string;
     withdrawalAddress?: string | null;
+    withdrawalNetwork?: string | null;
+    withdrawalAsset?: string | null;
   };
 }
 
@@ -121,6 +123,8 @@ export interface UserProfile {
   withdrawalCap: number;
   availableWithdrawal: number;
   withdrawalAddress: string | null;
+  withdrawalNetwork: string | null;
+  withdrawalAsset: string | null;
   createdAt: string;
 }
 
@@ -198,10 +202,14 @@ export const authApi = {
     });
   },
 
-  async updateWithdrawalAddress(address: string): Promise<{ withdrawalAddress: string; message: string }> {
-    return request<{ withdrawalAddress: string; message: string }>('/auth/withdrawal-address', {
+    async updateWithdrawalAddress(
+    address: string,
+    network?: string,
+    asset?: string
+  ): Promise<{ withdrawalAddress: string; withdrawalNetwork: string | null; withdrawalAsset: string | null; message: string }> {
+    return request<{ withdrawalAddress: string; withdrawalNetwork: string | null; withdrawalAsset: string | null; message: string }>('/auth/withdrawal-address', {
       method: 'PUT',
-      body: JSON.stringify({ address }),
+      body: JSON.stringify({ address, network, asset }),
     });
   },
 

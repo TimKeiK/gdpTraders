@@ -6,6 +6,26 @@ import type { ActiveInvestment } from '../../api/client';
 import PasswordInput from '../../components/PasswordInput';
 import './DashboardPages.css';
 
+/** Networks each withdrawable asset supports (USDT has TRC-20 and BEP-20). */
+const WITHDRAW_NETWORKS: Record<
+  string,
+  { value: string; label: string; placeholder: string }[]
+> = {
+  USDT: [
+    { value: 'TRC-20', label: 'Tron (TRC-20)', placeholder: 'TXYz4hPq8...' },
+    { value: 'BEP-20', label: 'BNB Smart Chain (BEP-20)', placeholder: '0x71C7656...' },
+  ],
+  BTC: [{ value: 'BTC', label: 'Bitcoin Network', placeholder: 'bc1q... / 1A1zP1...' }],
+  ETH: [{ value: 'ERC-20', label: 'Ethereum (ERC-20)', placeholder: '0x71C7656...' }],
+};
+
+/** Assets the client can withdraw. */
+const WITHDRAW_ASSETS = [
+  { value: 'USDT', label: 'USDT (Tether)', icon: '₮' },
+  { value: 'BTC', label: 'Bitcoin (BTC)', icon: '₿' },
+  { value: 'ETH', label: 'Ethereum (ETH)', icon: 'Ξ' },
+] as const;
+
 export default function ProfileSettingsPage() {
   const { user, updateUser } = useAuth();
 
@@ -21,8 +41,10 @@ export default function ProfileSettingsPage() {
   const [pwSaving, setPwSaving] = useState(false);
   const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  // --- Withdrawal address ---
+    // --- Withdrawal address ---
   const [address, setAddress] = useState(user?.withdrawalAddress ?? '');
+  const [network, setNetwork] = useState(user?.withdrawalNetwork ?? '');
+  const [asset, setAsset] = useState(user?.withdrawalAsset ?? '');
   const [addrSaving, setAddrSaving] = useState(false);
   const [addrMsg, setAddrMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -36,8 +58,10 @@ export default function ProfileSettingsPage() {
     }).catch(() => {});
   }, []);
 
-  useEffect(() => { setName(user?.name ?? ''); }, [user?.name]);
+     useEffect(() => { setName(user?.name ?? ''); }, [user?.name]);
   useEffect(() => { setAddress(user?.withdrawalAddress ?? ''); }, [user?.withdrawalAddress]);
+  useEffect(() => { setNetwork(user?.withdrawalNetwork ?? ''); }, [user?.withdrawalNetwork]);
+  useEffect(() => { setAsset(user?.withdrawalAsset ?? ''); }, [user?.withdrawalAsset]);
 
   const saveName = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,16 +96,20 @@ export default function ProfileSettingsPage() {
     }
   };
 
-  const saveAddress = async (e: React.FormEvent) => {
+    const saveAddress = async (e: React.FormEvent) => {
     e.preventDefault();
     setAddrMsg(null);
     const trimmed = address.trim();
     if (!trimmed) { setAddrMsg({ ok: false, text: 'Wallet address is required.' }); return; }
     setAddrSaving(true);
     try {
-      const res = await authApi.updateWithdrawalAddress(trimmed);
-      updateUser({ withdrawalAddress: res.withdrawalAddress });
-      setAddrMsg({ ok: true, text: 'Withdrawal address saved. Future withdrawals default to this address.' });
+      const res = await authApi.updateWithdrawalAddress(trimmed, network || undefined, asset || undefined);
+      updateUser({
+        withdrawalAddress: res.withdrawalAddress,
+        withdrawalNetwork: res.withdrawalNetwork,
+        withdrawalAsset: res.withdrawalAsset,
+      });
+      setAddrMsg({ ok: true, text: 'Withdrawal address and preferences saved. Future withdrawals default to this address.' });
     } catch (err) {
       setAddrMsg({ ok: false, text: err instanceof Error ? err.message : 'Failed to save withdrawal address.' });
     } finally {
@@ -214,11 +242,47 @@ export default function ProfileSettingsPage() {
           <div className="sec-info">
             <h3 className="dash-section-title" style={{ marginBottom: 4 }}>Default Withdrawal Address</h3>
             <p className="sec-sub">
-              Set a constant wallet address used by default for withdrawals. You can still override it per withdrawal.
+              Set a constant wallet address, coin and network used by default for withdrawals. You can still override them per withdrawal.
             </p>
           </div>
         </div>
         <form onSubmit={saveAddress} className="profile-form">
+          <div className="profile-form-grid">
+            <div>
+              <label className="form-label" htmlFor="wd-asset">Coin</label>
+              <select
+                id="wd-asset"
+                className="form-control"
+                value={asset}
+                onChange={(e) => {
+                  setAsset(e.target.value);
+                  // Reset network to the first available for the chosen coin
+                  const firstNet = WITHDRAW_NETWORKS[e.target.value]?.[0]?.value ?? '';
+                  setNetwork(firstNet);
+                }}
+              >
+                <option value="">Select a coin</option>
+                {WITHDRAW_ASSETS.map((a) => (
+                  <option key={a.value} value={a.value}>{a.icon} {a.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="form-label" htmlFor="wd-network">Network</label>
+              <select
+                id="wd-network"
+                className="form-control"
+                value={network}
+                onChange={(e) => setNetwork(e.target.value)}
+                disabled={!asset}
+              >
+                <option value="">Select a network</option>
+                {asset && WITHDRAW_NETWORKS[asset]?.map((n) => (
+                  <option key={n.value} value={n.value}>{n.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
           <label className="form-label" htmlFor="wd-address">Wallet Address</label>
           <input
             id="wd-address"
@@ -226,7 +290,7 @@ export default function ProfileSettingsPage() {
             style={{ fontFamily: 'monospace', fontSize: 13 }}
             value={address}
             onChange={(e) => setAddress(e.target.value)}
-            placeholder="e.g. TUc2… or 0x…"
+            placeholder={asset && network ? WITHDRAW_NETWORKS[asset]?.find((n) => n.value === network)?.placeholder ?? 'Paste your wallet address' : 'e.g. TUc2… or 0x…'}
           />
           {addrMsg && (
             <p className={`profile-msg ${addrMsg.ok ? 'profile-msg-ok' : 'profile-msg-err'}`}>

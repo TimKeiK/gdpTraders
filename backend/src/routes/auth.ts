@@ -11,7 +11,8 @@ import {
   setEmailVerified,
   updateUserName,
   updateUserPassword,
-  setWithdrawalAddress,
+    setWithdrawalAddress,
+  setDefaultWithdrawalInfo,
   addAuditLog,
   type User,
 } from '../db/index.js';
@@ -212,7 +213,9 @@ router.post('/login', async (req: Request, res: Response) => {
       name: user.name,
       role: user.role,
       kycStatus: user.kycStatus,
-      withdrawalAddress: user.withdrawalAddress,
+            withdrawalAddress: user.withdrawalAddress,
+      withdrawalNetwork: user.withdrawalNetwork,
+      withdrawalAsset: user.withdrawalAsset,
     },
   });
 });
@@ -230,7 +233,9 @@ router.get('/profile', requireAuth, (req: AuthenticatedRequest, res: Response) =
     kycStatus: user.kycStatus,
     withdrawalCap: user.withdrawalCap,
     availableWithdrawal: user.availableWithdrawal ?? 0,
-    withdrawalAddress: user.withdrawalAddress ?? null,
+        withdrawalAddress: user.withdrawalAddress ?? null,
+    withdrawalNetwork: user.withdrawalNetwork ?? null,
+    withdrawalAsset: user.withdrawalAsset ?? null,
     createdAt: user.createdAt,
   });
 });
@@ -294,11 +299,12 @@ router.patch('/profile', requireAuth, async (req: AuthenticatedRequest, res: Res
 
 /**
  * PUT /api/auth/withdrawal-address
- * Saves the constant withdrawal destination address for the client.
- * Body: { address }
+ * Saves the constant withdrawal destination address (and optional default
+ * network/coin) for the client's profile.
+ * Body: { address, network?, asset? }
  */
 router.put('/withdrawal-address', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
-  const { address } = req.body as { address?: string };
+  const { address, network, asset } = req.body as { address?: string; network?: string; asset?: string };
   const user = req.user!;
 
   if (!address || typeof address !== 'string' || !address.trim()) {
@@ -307,10 +313,15 @@ router.put('/withdrawal-address', requireAuth, async (req: AuthenticatedRequest,
   }
   const trimmed = address.trim();
 
-  await setWithdrawalAddress(user.id, trimmed);
-  await addAuditLog(user.id, 'WITHDRAWAL_ADDRESS_UPDATED', `Saved constant withdrawal address ${trimmed}`);
+  await setDefaultWithdrawalInfo(user.id, trimmed, network?.trim() || undefined, asset?.trim() || undefined);
+  await addAuditLog(user.id, 'WITHDRAWAL_ADDRESS_UPDATED', `Saved withdrawal address ${trimmed}${network ? ` (${network})` : ''}${asset ? ` [${asset}]` : ''}`);
 
-  res.json({ withdrawalAddress: trimmed, message: 'Withdrawal address saved successfully.' });
+  res.json({
+    withdrawalAddress: trimmed,
+    withdrawalNetwork: network?.trim() || null,
+    withdrawalAsset: asset?.trim() || null,
+    message: 'Withdrawal address and preferences saved successfully.',
+  });
 });
 
 export default router;

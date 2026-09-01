@@ -27,9 +27,13 @@ export interface User {
   withdrawalCap: number; // daily USD cap
   isEmailVerified: boolean;
   emailVerificationToken: string | null;
-  availableWithdrawal: number;
+    availableWithdrawal: number;
   /** A constant withdrawal destination address the client has saved in their profile. */
   withdrawalAddress?: string;
+  /** Default network for the saved withdrawal address (e.g. TRC-20, BEP-20). */
+  withdrawalNetwork?: string | null;
+  /** Default coin for withdrawals (e.g. USDT, BTC, ETH). */
+  withdrawalAsset?: string | null;
   createdAt: string;
 }
 
@@ -264,6 +268,21 @@ export function updateUserPassword(userId: string, passwordHash: string): void {
 export function setWithdrawalAddress(userId: string, address: string): void {
   const user = store.users.get(userId);
   if (user) user.withdrawalAddress = address;
+}
+
+/** Saves the client's default withdrawal coin + network (profile settings). */
+export function setDefaultWithdrawalInfo(
+  userId: string,
+  address: string,
+  network?: string,
+  asset?: string
+): void {
+  const user = store.users.get(userId);
+  if (user) {
+    user.withdrawalAddress = address;
+    user.withdrawalNetwork = network ?? null;
+    user.withdrawalAsset = asset ?? null;
+  }
 }
 
 export function getAllUsers(): User[] {
