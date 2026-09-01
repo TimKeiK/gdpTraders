@@ -132,18 +132,18 @@ Access is enforced on both ends: an `AdminRoute` guard in the frontend plus `req
 
 Clients transfer from any wallet they already own — no in-app coin purchase:
 
-1. **Choose a coin** — USDT (TRC-20), BTC (Bitcoin), or ETH (ERC-20), plus the intended amount.
-2. **Copy the platform deposit address** — stored per asset in `DEPOSIT_WALLET_ADDRESSES` (`backend/src/routes/wallet.ts`), shown with a copy button and network label.
+1. **Choose a coin & network** — USDT (TRC-20 or BEP-20), BTC (Bitcoin), or ETH (ERC-20), plus the intended amount.
+2. **Copy the platform deposit address** — stored per asset/network in `DEPOSIT_WALLET_BY_NETWORK` (`backend/src/routes/wallet.ts`), shown with a copy button and network label.
 3. **Send on the correct network** — a red warning explains that wrong-network transfers lose funds.
-4. **Confirm "I've Sent My Coins"** — a `Processing` transaction is recorded with the declared amount.
+4. **Confirm "I've Sent My Coins"** — a `Processing` transaction is recorded with the declared amount and network.
 5. **Admin confirms** — staff verify the on-chain transfer in *Admin → Transactions* (amount editable against actual received value). Confirming writes an append-only ledger entry that instantly credits the client's portfolio; denying marks it `Cancelled`.
 
 Card payment was removed from the UI (legacy card endpoints remain in the backend but are unused).
 
 ## Withdrawal Flow
 
-1. Client enters coin, amount, and **their own destination wallet address** (validated per network server-side: Tron `T…`, EVM `0x…`, Bitcoin).
-2. Checked against their available ledger balance and daily cap, then stored `Pending` with the address persisted on the transaction.
+1. Client enters coin, network (USDT offers TRC-20 or BEP-20), amount, and **their own destination wallet address** (validated per network server-side: Tron `T…`, BEP-20/ERC-20 EVM `0x…`, Bitcoin).
+2. Checked against their available ledger balance and daily cap, then stored `Pending` with the address and network persisted on the transaction.
 3. **Multi-sig execution** — requires signatures from BOTH an admin and a compliance officer (*Admin → Approvals* shows client identity, destination address, signature progress).
 4. At 2/2 signatures the withdrawal completes and a negative ledger entry deducts it from the client's portfolio.
 

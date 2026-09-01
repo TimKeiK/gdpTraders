@@ -154,7 +154,7 @@ export default function AdminTransactions() {
                     <div className="mono" style={{ color: 'var(--gray-400)' }}>{t.userEmail}</div>
                   </td>
                   <td><span className={`admin-pill ${TYPE_PILL[t.type] || 'pill-gray'}`}>{t.type}</span></td>
-                  <td>{t.asset}</td>
+                  <td>{t.asset}{t.network ? ` (${t.network})` : ''}</td>
                   <td><strong>{formatCurrency(t.amount)}</strong></td>
                   <td>{t.strategy || '—'}</td>
                   <td><span className={`admin-pill ${STATUS_PILL[t.status] || 'pill-gray'}`}>{t.status}</span></td>
@@ -193,7 +193,7 @@ export default function AdminTransactions() {
 
             <div className="admin-msg" style={{ background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.25)', color: '#c4b5fd' }}>
               <Clock size={16} style={{ flexShrink: 0, marginTop: 2 }} />
-              Verify this {confirmFor.asset} transfer on-chain before confirming. Funds will be credited and added to the ledger.
+              Verify this {confirmFor.asset}{confirmFor.network ? ` (${confirmFor.network})` : ''} transfer on-chain before confirming. Funds will be credited and added to the ledger.
             </div>
 
             <div className="form-group">
@@ -212,7 +212,7 @@ export default function AdminTransactions() {
             <div className="admin-modal-actions">
               <button className="admin-btn" onClick={() => setConfirmFor(null)} disabled={confirmBusy}>Cancel</button>
               <button className="admin-btn primary" onClick={confirmDeposit} disabled={confirmBusy}>
-                {confirmBusy ? 'Confirming…' : `Confirm ${confirmFor.asset} Deposit`}
+                {confirmBusy ? 'Confirming…' : `Confirm ${confirmFor.asset}${confirmFor.network ? ` (${confirmFor.network})` : ''} Deposit`}
               </button>
             </div>
           </div>

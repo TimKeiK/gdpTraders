@@ -58,6 +58,7 @@ export interface Transaction {
   status: 'Completed' | 'Pending' | 'Processing' | 'Cancelled';
   txHash: string;
   destinationAddress?: string;
+  network?: string;
   requiresApproval?: boolean;
   approval1?: boolean;
   approval2?: boolean;
@@ -202,11 +203,12 @@ export const api = {
   /** Records a crypto transfer submitted by the user (manual wallet deposit). */
   async submitCryptoDeposit(
     asset: string,
-    amount: number
+    amount: number,
+    network?: string
   ): Promise<{ transaction: Transaction; message: string }> {
     return request<{ transaction: Transaction; message: string }>('/wallet/crypto-deposit', {
       method: 'POST',
-      body: JSON.stringify({ asset, amount }),
+      body: JSON.stringify({ asset, amount, network }),
     });
   },
 
@@ -227,10 +229,15 @@ export const api = {
   },
 
   /** Creates a withdrawal request requiring multi-sig approval. */
-  async createWithdrawal(asset: string, amount: number, destinationAddress: string): Promise<{ transaction: Transaction; message: string }> {
+  async createWithdrawal(
+    asset: string,
+    amount: number,
+    destinationAddress: string,
+    network?: string
+  ): Promise<{ transaction: Transaction; message: string }> {
     return request<{ transaction: Transaction; message: string }>('/wallet/withdraw', {
       method: 'POST',
-      body: JSON.stringify({ asset, amount, destinationAddress }),
+      body: JSON.stringify({ asset, amount, destinationAddress, network }),
     });
   },
 };

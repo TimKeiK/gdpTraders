@@ -28,6 +28,10 @@ export async function ensureSchema(): Promise<void> {
   await pool.query(
     `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS destination_address VARCHAR(255)`
   );
+  // Network a transaction travels on (e.g. USDT → TRC-20 or BEP-20).
+  await pool.query(
+    `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS network VARCHAR(20)`
+  );
 
   // Email-verification columns (added in the "email verification" change).
   await pool.query(
@@ -130,6 +134,7 @@ export interface Transaction {
   status: 'Completed' | 'Pending' | 'Processing' | 'Cancelled';
   txHash: string;
   destinationAddress?: string;
+  network?: string;
   requiresApproval?: boolean;
   approval1?: boolean;
   approval2?: boolean;
@@ -344,8 +349,8 @@ export async function getDepositAddress(userId: string, asset: string): Promise<
 
 export async function addTransaction(tx: Transaction): Promise<void> {
   await pool.query(
-    `INSERT INTO transactions (id, user_id, date, type, asset, amount, strategy, status, tx_hash, destination_address, requires_approval, approval1, approval2)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    `INSERT INTO transactions (id, user_id, date, type, asset, amount, strategy, status, tx_hash, destination_address, network, requires_approval, approval1, approval2)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      ON CONFLICT (id) DO UPDATE SET
        date = EXCLUDED.date,
        type = EXCLUDED.type,
@@ -355,11 +360,12 @@ export async function addTransaction(tx: Transaction): Promise<void> {
        status = EXCLUDED.status,
        tx_hash = EXCLUDED.tx_hash,
        destination_address = EXCLUDED.destination_address,
+       network = EXCLUDED.network,
        requires_approval = EXCLUDED.requires_approval,
        approval1 = EXCLUDED.approval1,
        approval2 = EXCLUDED.approval2`,
     [tx.id, tx.userId, tx.date, tx.type, tx.asset, tx.amount, tx.strategy, tx.status,
-     tx.txHash, tx.destinationAddress ?? null, tx.requiresApproval ?? false, tx.approval1 ?? false, tx.approval2 ?? false]
+     tx.txHash, tx.destinationAddress ?? null, tx.network ?? null, tx.requiresApproval ?? false, tx.approval1 ?? false, tx.approval2 ?? false]
   );
 }
 
@@ -388,6 +394,7 @@ function mapTransaction(r: any): Transaction {
     status: r.status,
     txHash: r.tx_hash,
     destinationAddress: r.destination_address ?? undefined,
+    network: r.network ?? undefined,
     requiresApproval: r.requires_approval,
     approval1: r.approval1,
     approval2: r.approval2,

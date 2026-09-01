@@ -14,11 +14,24 @@ import { useAuth } from '../../contexts/AuthContext';
 import './DashboardPages.css';
 import './DepositPage.css';
 
-/** Assets the client can withdraw and the network each travels on. */
+/** Networks each withdrawable asset supports (USDT has TRC-20 and BEP-20). */
+const WITHDRAW_NETWORKS: Record<
+  string,
+  { value: string; label: string; placeholder: string }[]
+> = {
+  USDT: [
+    { value: 'TRC-20', label: 'Tron (TRC-20)', placeholder: 'TXYz4hPq8...' },
+    { value: 'BEP-20', label: 'BNB Smart Chain (BEP-20)', placeholder: '0x71C7656...' },
+  ],
+  BTC: [{ value: 'BTC', label: 'Bitcoin Network', placeholder: 'bc1q... / 1A1zP1...' }],
+  ETH: [{ value: 'ERC-20', label: 'Ethereum (ERC-20)', placeholder: '0x71C7656...' }],
+};
+
+/** Assets the client can withdraw. */
 const WITHDRAW_ASSETS = [
-  { value: 'USDT', label: 'USDT (Tether)', icon: '₮', network: 'Tron (TRC-20)', placeholder: 'TXYz4hPq8...' },
-  { value: 'BTC', label: 'Bitcoin (BTC)', icon: '₿', network: 'Bitcoin Network', placeholder: 'bc1q... / 1A1zP1...' },
-  { value: 'ETH', label: 'Ethereum (ETH)', icon: 'Ξ', network: 'Ethereum (ERC-20)', placeholder: '0x71C7656...' },
+  { value: 'USDT', label: 'USDT (Tether)', icon: '₮' },
+  { value: 'BTC', label: 'Bitcoin (BTC)', icon: '₿' },
+  { value: 'ETH', label: 'Ethereum (ETH)', icon: 'Ξ' },
 ] as const;
 
 type Step = 'form' | 'submitted';
@@ -27,6 +40,7 @@ export default function WithdrawPage() {
   const { user, refreshProfile } = useAuth();
   const [step, setStep] = useState<Step>('form');
   const [asset, setAsset] = useState('USDT');
+  const [network, setNetwork] = useState('TRC-20');
   const [amount, setAmount] = useState('');
   const [destAddress, setDestAddress] = useState('');
   const [loading, setLoading] = useState(false);
@@ -39,6 +53,15 @@ export default function WithdrawPage() {
 
   const selectedAsset =
     WITHDRAW_ASSETS.find((a) => a.value === asset) ?? WITHDRAW_ASSETS[0];
+  const withdrawNetworks = WITHDRAW_NETWORKS[asset] ?? WITHDRAW_NETWORKS.USDT;
+  const selectedNetwork =
+    withdrawNetworks.find((n) => n.value === network) ?? withdrawNetworks[0];
+
+  /** When the coin changes, reset the network to that coin's first option. */
+  const handleAssetChange = (v: string) => {
+    setAsset(v);
+    setNetwork(WITHDRAW_NETWORKS[v]?.[0]?.value ?? '');
+  };
 
   /** Load the client's transactions, filtered to withdrawals. */
   const loadHistory = () => {
@@ -68,7 +91,7 @@ export default function WithdrawPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await api.createWithdrawal(asset, parsedAmount, destAddress.trim());
+      const res = await api.createWithdrawal(asset, parsedAmount, destAddress.trim(), selectedNetwork.value);
       setTxRef(res.transaction.id);
       setStep('submitted');
       loadHistory();
@@ -178,11 +201,15 @@ export default function WithdrawPage() {
       ) : step === 'form' ? (
         <WithdrawForm
           asset={asset}
-          setAsset={setAsset}
+          setAsset={handleAssetChange}
           amount={amount}
           setAmount={setAmount}
           destAddress={destAddress}
           setDestAddress={setDestAddress}
+          network={network}
+          setNetwork={setNetwork}
+          networks={withdrawNetworks}
+          selectedNetwork={selectedNetwork}
           loading={loading}
           error={error}
           onSubmit={handleSubmit}
@@ -213,6 +240,8 @@ export default function WithdrawPage() {
 
 type AssetDef = typeof WITHDRAW_ASSETS[number];
 
+type WithdrawNetwork = (typeof WITHDRAW_NETWORKS)['USDT'][number];
+
 function WithdrawForm(props: {
   asset: string;
   setAsset: (v: string) => void;
@@ -220,12 +249,16 @@ function WithdrawForm(props: {
   setAmount: (v: string) => void;
   destAddress: string;
   setDestAddress: (v: string) => void;
+  network: string;
+  setNetwork: (v: string) => void;
+  networks: WithdrawNetwork[];
+  selectedNetwork: WithdrawNetwork;
   loading: boolean;
   error: string;
   selectedAsset: AssetDef;
   onSubmit: (e: React.FormEvent) => void;
 }) {
-  const { asset, setAsset, amount, setAmount, destAddress, setDestAddress, loading, error, selectedAsset, onSubmit } = props;
+  const { asset, setAsset, amount, setAmount, destAddress, setDestAddress, network, setNetwork, networks, selectedNetwork, loading, error, selectedAsset, onSubmit } = props;
   return (
     <div className="withdraw-grid">
       {/* ---- Left: the request form ---- */}
@@ -250,15 +283,39 @@ function WithdrawForm(props: {
             >
               {WITHDRAW_ASSETS.map((a) => (
                 <option key={a.value} value={a.value}>
-                  {a.icon}  {a.label} — {a.network}
+                  {a.icon}  {a.label}
                 </option>
               ))}
             </select>
-            <p className="form-hint">
-              You'll receive {selectedAsset.label.split(' ')[0]} on the{' '}
-              <strong>{selectedAsset.network}</strong>.
-            </p>
           </div>
+
+          {networks.length > 1 && (
+            <div className="form-group">
+              <label>Select Network</label>
+              <select
+                className="form-control"
+                value={network}
+                onChange={(e) => setNetwork(e.target.value)}
+                disabled={loading}
+                style={{ fontSize: '15px', height: '52px' }}
+              >
+                {networks.map((n) => (
+                  <option key={n.value} value={n.value}>
+                    {n.label}
+                  </option>
+                ))}
+              </select>
+              <p className="form-hint">
+                {selectedAsset.label} can be withdrawn on more than one network. Pick the{' '}
+                <strong>{selectedNetwork.label}</strong> network you want to receive your funds on.
+              </p>
+            </div>
+          )}
+
+          <p className="form-hint" style={{ marginBottom: 16 }}>
+            You'll receive {selectedAsset.label.split(' ')[0]} on the{' '}
+            <strong>{selectedNetwork.label}</strong>.
+          </p>
 
           <div className="form-group">
             <label>Amount (USD)</label>
@@ -277,13 +334,13 @@ function WithdrawForm(props: {
           </div>
 
           <div className="form-group">
-            <label>Your Wallet Address ({selectedAsset.network})</label>
+            <label>Your Wallet Address ({selectedNetwork.label})</label>
             <input
               className="form-control"
               type="text"
               value={destAddress}
               onChange={(e) => setDestAddress(e.target.value)}
-              placeholder={`Paste your ${asset} wallet address, e.g. ${selectedAsset.placeholder}`}
+              placeholder={`Paste your ${asset} wallet address, e.g. ${selectedNetwork.placeholder}`}
               required
               disabled={loading}
               style={{ fontFamily: 'monospace', fontSize: '14px' }}
@@ -291,7 +348,7 @@ function WithdrawForm(props: {
             <p className="form-hint">
               This is where we send your crypto. Make sure it is a{' '}
               <strong>{asset}</strong> address on the{' '}
-              <strong>{selectedAsset.network}</strong>.
+              <strong>{selectedNetwork.label}</strong>.
             </p>
           </div>
 
@@ -412,7 +469,7 @@ function WithdrawHistory({ history, loading }: { history: Transaction[]; loading
               return (
                 <tr key={t.id}>
                   <td>{new Date(t.date).toLocaleDateString()}</td>
-                  <td>{a?.icon ?? ''} {t.asset}</td>
+                  <td>{a?.icon ?? ''} {t.asset}{t.network ? ` (${t.network})` : ''}</td>
                   <td><strong>${Number(t.amount).toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></td>
                   <td className="mono" style={{ maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {t.destinationAddress ?? '—'}

@@ -103,7 +103,7 @@ export default function AdminApprovals() {
                       <div style={{ fontWeight: 600 }}>{t.userName}</div>
                       <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>{t.userEmail}</div>
                     </td>
-                    <td>{t.asset}</td>
+                    <td>{t.asset}{t.network ? ` (${t.network})` : ''}</td>
                     <td><strong>{formatCurrency(t.amount)}</strong></td>
                     <td
                       className="mono"

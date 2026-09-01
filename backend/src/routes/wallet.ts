@@ -122,51 +122,88 @@ const router = Router();
 router.use(requireAuth);
 
 /**
- * Constant deposit wallet addresses (configured per asset)
- * In production, these should be from your secure custody system
+ * Per-asset deposit network registry.
+ *
+ * USDT supports multiple networks (TRC-20 and BEP-20); BTC and ETH each support
+ * one. Each entry maps a network id to its custodial deposit address. In
+ * production these addresses should come from your secure custody system.
  */
-const DEPOSIT_WALLET_ADDRESSES: Record<string, string> = {
-  USDT: process.env.DEPOSIT_WALLET_USDT || 'TUc2wxZTmfseu42idSDdhKDT35eyUiWwwp',
-  BTC: process.env.DEPOSIT_WALLET_BTC || '0x69276bb6ccd6927ac2623a6b18601ce2d48efda3',
-  ETH: process.env.DEPOSIT_WALLET_ETH || '0x69276bb6ccd6927ac2623a6b18601ce2d48efda3',
+const DEPOSIT_WALLET_BY_NETWORK: Record<string, { network: string; label: string; address: string }[]> = {
+  USDT: [
+    { network: 'TRC-20', label: 'Tron (TRC-20)', address: process.env.DEPOSIT_WALLET_USDT_TRC20 || 'TUc2wxZTmfseu42idSDdhKDT35eyUiWwwp' },
+    { network: 'BEP-20', label: 'BNB Smart Chain (BEP-20)', address: process.env.DEPOSIT_WALLET_USDT_BEP20 || '0x69276bb6ccd6927ac2623a6b18601ce2d48efda3' },
+  ],
+  BTC: [{ network: 'BTC', label: 'Bitcoin Network', address: process.env.DEPOSIT_WALLET_BTC || '0x69276bb6ccd6927ac2623a6b18601ce2d48efda3' }],
+  ETH: [{ network: 'ERC-20', label: 'Ethereum (ERC-20)', address: process.env.DEPOSIT_WALLET_ETH || '0x69276bb6ccd6927ac2623a6b18601ce2d48efda3' }],
 };
 
+/** Default network used for each asset when a client does not specify one. */
+const DEFAULT_NETWORK: Record<string, string> = { USDT: 'TRC-20', BTC: 'BTC', ETH: 'ERC-20' };
+
+interface DepositNetwork {
+  network: string;
+  label: string;
+  address: string;
+}
+
 /**
- * GET /api/wallet/deposit-address
- * Returns the constant deposit wallet address for the specified asset
+ * Resolve the deposit network for an asset.
+ * Returns undefined when the asset is unsupported or the requested network is
+ * not valid for that asset (e.g. BEP-20 on BTC).
+ */
+function getDepositNetwork(asset: string, network?: string): DepositNetwork | undefined {
+  const networks = DEPOSIT_WALLET_BY_NETWORK[asset];
+  if (!networks || networks.length === 0) return undefined;
+  const wanted = (network || DEFAULT_NETWORK[asset] || networks[0].network).toUpperCase();
+  return networks.find((n) => n.network.toUpperCase() === wanted);
+}
+
+/**
+ * GET /api/wallet/deposit-address/:asset?network=
+ * Returns the custodial deposit address for the specified asset on the
+ * requested network (network is required when the asset supports more than one,
+ * e.g. USDT → TRC-20 or BEP-20).
  */
 router.get('/deposit-address/:asset', async (req: AuthenticatedRequest, res: Response) => {
   const asset = req.params.asset as string;
-  
-  if (!SUPPORTED_ASSETS.includes(asset)) {
-    res.status(400).json({ error: `Unsupported asset. Supported: ${SUPPORTED_ASSETS.join(', ')}` });
-    return;
-  }
+  const network = (req.query.network as string | undefined)?.toUpperCase();
 
-  const address = DEPOSIT_WALLET_ADDRESSES[asset];
-  if (!address) {
-    res.status(500).json({ error: 'Deposit wallet not configured for this asset' });
+  const deposit = getDepositNetwork(asset, network);
+  if (!deposit) {
+    const networks = DEPOSIT_WALLET_BY_NETWORK[asset];
+    if (!SUPPORTED_ASSETS.includes(asset)) {
+      res.status(400).json({ error: `Unsupported asset. Supported: ${SUPPORTED_ASSETS.join(', ')}` });
+    } else {
+      res.status(400).json({
+        error: `Unsupported network for ${asset}. Supported: ${networks.map((n) => n.network).join(', ')}`,
+      });
+    }
     return;
   }
 
   res.json({
     asset,
-    address,
-    message: 'Funds purchased by card are delivered to this constant custodial wallet.',
+    network: deposit.network,
+    address: deposit.address,
+    message: `Deposit ${asset} on the ${deposit.network} network to this custodial address.`,
   });
 });
 
 /**
  * GET /api/wallet/addresses
- * Returns the user's deposit addresses per asset.
+ * Returns the user's deposit addresses per asset and network.
  */
 router.get('/addresses', async (req: AuthenticatedRequest, res: Response) => {
-  const addresses = SUPPORTED_ASSETS.map(asset => ({
-    address: DEPOSIT_WALLET_ADDRESSES[asset],
-    asset,
-    isActive: true,
-    createdAt: new Date().toISOString(),
-  }));
+  const addresses = SUPPORTED_ASSETS.flatMap((asset) =>
+    (DEPOSIT_WALLET_BY_NETWORK[asset] ?? []).map((n) => ({
+      asset,
+      network: n.network,
+      label: n.label,
+      address: n.address,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+    }))
+  );
   res.json(addresses);
 });
 
@@ -199,7 +236,7 @@ router.get('/policy', (req: AuthenticatedRequest, res: Response) => {
  * POST /api/wallet/deposit
  * Creates a card Payment Intent (Stripe) for the deposit.
  * Deposits are card-only and the purchased asset is delivered to a constant
- * custodial crypto wallet (DEPOSIT_WALLET_ADDRESSES) — there is no manual
+ * custodial crypto wallet (DEPOSIT_WALLET_BY_NETWORK) — there is no manual
  * crypto-transfer address flow.
  * KYC must be APPROVED (backend.md §4.2).
  * 
@@ -207,10 +244,10 @@ router.get('/policy', (req: AuthenticatedRequest, res: Response) => {
  * Response: { clientSecret, paymentIntentId, amount, asset, depositAddress }
  */
 router.post('/deposit', requireKycApproved, async (req: AuthenticatedRequest, res: Response) => {
-  const { asset, amount } = req.body;
+  const { asset, amount, network } = req.body as { asset?: string; amount?: number; network?: string };
   const userId = req.userId!;
 
-  if (!SUPPORTED_ASSETS.includes(asset)) {
+  if (!asset || !SUPPORTED_ASSETS.includes(asset)) {
     res.status(400).json({ error: `Unsupported asset. Supported: ${SUPPORTED_ASSETS.join(', ')}` });
     return;
   }
@@ -219,9 +256,11 @@ router.post('/deposit', requireKycApproved, async (req: AuthenticatedRequest, re
     return;
   }
 
-  const depositAddress = DEPOSIT_WALLET_ADDRESSES[asset];
-  if (!depositAddress) {
-    res.status(500).json({ error: 'Deposit wallet not configured for this asset' });
+  const deposit = getDepositNetwork(asset, network);
+  if (!deposit) {
+    res.status(400).json({
+      error: `Unsupported network for ${asset}. Supported: ${DEPOSIT_WALLET_BY_NETWORK[asset].map((n) => n.network).join(', ')}`,
+    });
     return;
   }
 
@@ -231,7 +270,7 @@ router.post('/deposit', requireKycApproved, async (req: AuthenticatedRequest, re
       amount,
       currency: 'usd',
       description: `Deposit ${amount} USD as ${asset} to GDPTraders`,
-      metadata: { userId, asset, depositAddress },
+      metadata: { userId, asset, network: deposit.network, depositAddress: deposit.address },
     });
 
     res.status(201).json({
@@ -239,7 +278,8 @@ router.post('/deposit', requireKycApproved, async (req: AuthenticatedRequest, re
       paymentIntentId: intent.id,
       amount,
       asset,
-      depositAddress,
+      network: deposit.network,
+      depositAddress: deposit.address,
       message: 'Payment intent created. Complete the card payment to deposit funds into the custodial wallet.',
     });
   } catch (err) {
@@ -256,19 +296,25 @@ router.post('/deposit', requireKycApproved, async (req: AuthenticatedRequest, re
  * Body: { paymentIntentId, asset, amount }
  */
 router.post('/deposit-confirm', requireKycApproved, async (req: AuthenticatedRequest, res: Response) => {
-  const { paymentIntentId, asset, amount } = req.body;
+  const { paymentIntentId, asset, amount, network } = req.body as {
+    paymentIntentId?: string;
+    asset?: string;
+    amount?: number;
+    network?: string;
+  };
   const userId = req.userId!;
 
-  if (!SUPPORTED_ASSETS.includes(asset) || !amount || amount <= 0) {
+  if (!asset || !SUPPORTED_ASSETS.includes(asset) || !amount || amount <= 0) {
     res.status(400).json({ error: 'Invalid asset or amount' });
     return;
   }
 
-  const depositAddress = DEPOSIT_WALLET_ADDRESSES[asset];
+  const deposit = getDepositNetwork(asset, network);
+  const depositAddress = deposit?.address;
 
   try {
     // Verify the card payment intent (real Stripe or mock).
-    const intent = await retrievePaymentIntent(paymentIntentId);
+    const intent = await retrievePaymentIntent(paymentIntentId ?? '');
     if (!intent || intent.status !== 'succeeded') {
       res.status(400).json({ error: 'Payment has not been completed' });
       return;
@@ -288,7 +334,8 @@ router.post('/deposit-confirm', requireKycApproved, async (req: AuthenticatedReq
       amount,
       strategy: 'Pending Allocation',
       status: 'Completed',
-      txHash: paymentIntentId,
+      txHash: paymentIntentId ?? '',
+      network: deposit?.network,
     };
     await addTransaction(tx);
     
@@ -296,12 +343,13 @@ router.post('/deposit-confirm', requireKycApproved, async (req: AuthenticatedReq
     await addAuditLog(
       userId,
       'DEPOSIT',
-      `Card deposit confirmed: ${amount} USD as ${asset} delivered to custodial wallet ${depositAddress} (${paymentIntentId})`
+      `Card deposit confirmed: ${amount} USD as ${asset}${deposit ? ` (${deposit.network})` : ''} delivered to custodial wallet ${depositAddress} (${paymentIntentId})`
     );
 
     res.status(201).json({
       transaction: tx,
       depositAddress,
+      network: deposit?.network,
       message: `Deposit confirmed. Your ${asset} has been delivered to the custodial wallet and credited to your account.`,
     });
   } catch (err) {
@@ -314,7 +362,7 @@ router.post('/deposit-confirm', requireKycApproved, async (req: AuthenticatedReq
  * POST /api/wallet/crypto-deposit
  * Records a crypto deposit submitted by the user via manual wallet transfer.
  * The user sends the selected asset to the constant custodial deposit wallet
- * (DEPOSIT_WALLET_ADDRESSES), then notifies us to verify the on-chain transfer.
+ * (DEPOSIT_WALLET_BY_NETWORK), then notifies us to verify the on-chain transfer.
  * The deposit is recorded as Processing until confirmed. The declared amount
  * is stored so admins can verify it against the actual on-chain transfer
  * before crediting the client's portfolio (ledger 'deposit' entry).
@@ -322,7 +370,7 @@ router.post('/deposit-confirm', requireKycApproved, async (req: AuthenticatedReq
  * Body: { asset: 'USDT', amount: 1500 }
  */
 router.post('/crypto-deposit', requireKycApproved, async (req: AuthenticatedRequest, res: Response) => {
-  const { asset, amount } = req.body as { asset?: string; amount?: number };
+  const { asset, amount, network } = req.body as { asset?: string; amount?: number; network?: string };
   const userId = req.userId!;
 
   if (!asset || !SUPPORTED_ASSETS.includes(asset)) {
@@ -335,9 +383,12 @@ router.post('/crypto-deposit', requireKycApproved, async (req: AuthenticatedRequ
     return;
   }
 
-  const depositAddress = DEPOSIT_WALLET_ADDRESSES[asset];
-  if (!depositAddress) {
-    res.status(500).json({ error: 'Deposit wallet not configured for this asset' });
+  // Resolve the deposit network (USDT supports TRC-20 and BEP-20).
+  const deposit = getDepositNetwork(asset, network);
+  if (!deposit) {
+    res.status(400).json({
+      error: `Unsupported network for ${asset}. Supported: ${DEPOSIT_WALLET_BY_NETWORK[asset].map((n) => n.network).join(', ')}`,
+    });
     return;
   }
 
@@ -353,18 +404,20 @@ router.post('/crypto-deposit', requireKycApproved, async (req: AuthenticatedRequ
     strategy: 'Pending Allocation',
     status: 'Processing',
     txHash: `0x${nanoid(16)}`,
+    network: deposit.network,
   };
   await addTransaction(tx);
   await addAuditLog(
     userId,
     'DEPOSIT_SUBMITTED',
-    `User reported sending ${parsedAmount} ${asset} to custodial wallet ${depositAddress} (${txId})`
+    `User reported sending ${parsedAmount} ${asset} on ${deposit.network} to custodial wallet ${deposit.address} (${txId})`
   );
 
   res.status(201).json({
     transaction: tx,
-    depositAddress,
-    message: `Deposit recorded. We will verify your ${asset} transfer on the blockchain and credit your account once confirmed.`,
+    network: deposit.network,
+    depositAddress: deposit.address,
+    message: `Deposit recorded. We will verify your ${asset} (${deposit.network}) transfer on the blockchain and credit your account once confirmed.`,
   });
 });
 
@@ -374,10 +427,11 @@ router.post('/crypto-deposit', requireKycApproved, async (req: AuthenticatedRequ
  * Body: { asset, amount, destinationAddress }
  */
 router.post('/withdraw', requireKycApproved, async (req: AuthenticatedRequest, res: Response) => {
-  const { asset, amount, destinationAddress } = req.body as {
+  const { asset, amount, destinationAddress, network } = req.body as {
     asset?: string;
     amount?: number;
     destinationAddress?: string;
+    network?: string;
   };
   const user = req.user!;
   const address = typeof destinationAddress === 'string' ? destinationAddress.trim() : '';
@@ -386,6 +440,18 @@ router.post('/withdraw', requireKycApproved, async (req: AuthenticatedRequest, r
     res.status(400).json({ error: `Unsupported asset. Supported: ${SUPPORTED_ASSETS.join(', ')}` });
     return;
   }
+
+  // Resolve the network the client wants to receive on. USDT supports TRC-20
+  // and BEP-20; BTC and ETH default to their single supported network.
+  const networks = DEPOSIT_WALLET_BY_NETWORK[asset] ?? [];
+  const net = getDepositNetwork(asset, network);
+  if (!net || networks.length === 0) {
+    res.status(400).json({
+      error: `Unsupported network for ${asset}. Supported: ${networks.map((n) => n.network).join(', ')}`,
+    });
+    return;
+  }
+
   const parsedAmount = Number(amount);
   if (!amount || Number.isNaN(parsedAmount) || parsedAmount <= 0) {
     res.status(400).json({ error: 'Amount must be positive' });
@@ -394,16 +460,17 @@ router.post('/withdraw', requireKycApproved, async (req: AuthenticatedRequest, r
   // Basic per-network sanity checks so typos/looped-in wrong-chain addresses
   // fail fast. Final verification of the on-chain transfer is the approvers' job.
   const isValidAddress =
-    (asset === 'BTC' && /^[13bc][a-zA-Z0-9]{24,60}$/.test(address)) ||
-    (asset === 'ETH' && /^0x[a-fA-F0-9]{40}$/.test(address)) ||
-    (asset === 'USDT' && /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address));
+    (net.network === 'BTC' && /^[13bc][a-zA-Z0-9]{24,60}$/.test(address)) ||
+    (net.network === 'ERC-20' && /^0x[a-fA-F0-9]{40}$/.test(address)) ||
+    (net.network === 'TRC-20' && /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address)) ||
+    (net.network === 'BEP-20' && /^0x[a-fA-F0-9]{40}$/.test(address));
   if (!address) {
     res.status(400).json({ error: 'Destination wallet address is required' });
     return;
   }
   if (!isValidAddress) {
     res.status(400).json({
-      error: `That doesn't look like a valid ${asset} ${asset === 'USDT' ? 'TRC-20' : ''} wallet address. Double-check it and try again.`,
+      error: `That doesn't look like a valid ${asset} ${net.network} wallet address. Double-check it and try again.`,
     });
     return;
   }
@@ -444,13 +511,14 @@ router.post('/withdraw', requireKycApproved, async (req: AuthenticatedRequest, r
     status: 'Pending',
     txHash: `0x${nanoid(16)}`,
     destinationAddress: address,
+    network: net.network,
     requiresApproval: true,
     approval1: false,
     approval2: false,
   };
   await addWithdrawalRequest(tx);
   await addTransaction(tx);
-  await addAuditLog(user.id, 'WITHDRAWAL_REQUESTED', `${asset} ${parsedAmount} withdrawal to ${address}`);
+  await addAuditLog(user.id, 'WITHDRAWAL_REQUESTED', `${asset} (${net.network}) ${parsedAmount} withdrawal to ${address}`);
 
   res.status(201).json({
     transaction: tx,

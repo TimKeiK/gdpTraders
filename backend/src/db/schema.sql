@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     status VARCHAR(20) NOT NULL DEFAULT 'Processing',
     tx_hash VARCHAR(255),
     destination_address VARCHAR(255),
+    network VARCHAR(20),
     requires_approval BOOLEAN DEFAULT false,
     approval1 BOOLEAN DEFAULT false,
     approval2 BOOLEAN DEFAULT false
@@ -68,6 +69,8 @@ CREATE TABLE IF NOT EXISTS transactions (
 
 -- Migration for databases created before the destination_address column existed
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS destination_address VARCHAR(255);
+-- Migration for databases created before the network column existed
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS network VARCHAR(20);
 
 -- Strategy allocations
 CREATE TABLE IF NOT EXISTS strategy_allocations (

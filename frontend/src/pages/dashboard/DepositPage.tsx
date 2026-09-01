@@ -25,43 +25,64 @@ const depositPlans = [
   { rank: '👑', name: 'Rhodium', deposit: '$5,000+', daily: '20%', duration: '250 Working Days' },
 ];
 
+/**
+ * Assets a client can deposit and the network(s) each supports.
+ * USDT supports two networks (TRC-20 on Tron and BEP-20 on BNB Smart Chain);
+ * BTC and ETH each support a single network.
+ */
+const NETWORKS_BY_ASSET: Record<
+  string,
+  { value: string; label: string; address: string; networkNote: string }[]
+> = {
+  USDT: [
+    {
+      value: 'TRC-20',
+      label: 'Tron (TRC-20)',
+      address: 'TUc2wxZTmfseu42idSDdhKDT35eyUiWwwp',
+      networkNote:
+        'Send USDT on the Tron (TRC-20) network. Sending on another network (e.g. ERC-20, BEP-20) WILL lose your funds.',
+    },
+    {
+      value: 'BEP-20',
+      label: 'BNB Smart Chain (BEP-20)',
+      address: '0x69276bb6ccd6927ac2623a6b18601ce2d48efda3',
+      networkNote:
+        'Send USDT on the BNB Smart Chain (BEP-20) network. Sending on another network (e.g. TRC-20, ERC-20) WILL lose your funds.',
+    },
+  ],
+  BTC: [
+    {
+      value: 'BTC',
+      label: 'Bitcoin Network',
+      address: '0x69276bb6ccd6927ac2623a6b18601ce2d48efda3',
+      networkNote: 'Send BTC on the Bitcoin network. Sending on another network WILL lose your funds.',
+    },
+  ],
+  ETH: [
+    {
+      value: 'ERC-20',
+      label: 'Ethereum (ERC-20)',
+      address: '0x69276bb6ccd6927ac2623a6b18601ce2d48efda3',
+      networkNote: 'Send ETH on the Ethereum network. Sending on another network WILL lose your funds.',
+    },
+  ],
+};
+
+// These addresses match backend/src/routes/wallet.ts DEPOSIT_WALLET_BY_NETWORK.
 const SUPPORTED_ASSETS = [
-  {
-    value: 'USDT',
-    label: 'USDT (Tether)',
-    icon: '₮',
-    network: 'Tron (TRC-20)',
-    networkNote:
-      'Send USDT on the TRC-20 network. Sending on another network (e.g. ERC-20, BEP-20) WILL lose your funds.',
-  },
-  {
-    value: 'BTC',
-    label: 'BTC (Bitcoin)',
-    icon: '₿',
-    network: 'Bitcoin Network',
-    networkNote: 'Send BTC on the Bitcoin network. Sending on another network WILL lose your funds.',
-  },
-  {
-    value: 'ETH',
-    label: 'ETH (Ethereum)',
-    icon: 'Ξ',
-    network: 'Ethereum (ERC-20)',
-    networkNote:
-      'Send ETH on the Ethereum network. Sending on another network WILL lose your funds.',
-  },
+  { value: 'USDT', label: 'USDT (Tether)', icon: '₮' },
+  { value: 'BTC', label: 'BTC (Bitcoin)', icon: '₿' },
+  { value: 'ETH', label: 'ETH (Ethereum)', icon: 'Ξ' },
 ];
 
-// These addresses match backend/src/routes/wallet.ts DEPOSIT_WALLET_ADDRESSES.
-const DEPOSIT_ADDRESSES: Record<string, string> = {
-  USDT: 'TUc2wxZTmfseu42idSDdhKDT35eyUiWwwp',
-  BTC: '0x69276bb6ccd6927ac2623a6b18601ce2d48efda3',
-  ETH: '0x69276bb6ccd6927ac2623a6b18601ce2d48efda3',
-};
+/** Default network shown for each asset when no explicit selection is made yet. */
+const DEFAULT_NETWORK: Record<string, string> = { USDT: 'TRC-20', BTC: 'BTC', ETH: 'ERC-20' };
 
 export default function DepositPage() {
   const { user, refreshProfile } = useAuth();
   const [step, setStep] = useState<'select' | 'instructions' | 'sent'>('select');
   const [asset, setAsset] = useState('USDT');
+  const [network, setNetwork] = useState(DEFAULT_NETWORK.USDT);
 
   // KYC states
   const [docType, setDocType] = useState('Passport');
@@ -77,7 +98,11 @@ export default function DepositPage() {
   const [amount, setAmount] = useState('');
 
   const selectedAsset = SUPPORTED_ASSETS.find((a) => a.value === asset) ?? SUPPORTED_ASSETS[0];
-  const address = DEPOSIT_ADDRESSES[asset];
+  const networks = NETWORKS_BY_ASSET[asset] ?? NETWORKS_BY_ASSET.USDT;
+  const selectedNetwork = networks.find((n) => n.value === network) ?? networks[0];
+  const address = selectedNetwork.address;
+  const networkLabel = selectedNetwork.label;
+  const networkNote = selectedNetwork.networkNote;
 
   const handleKycSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,6 +120,12 @@ export default function DepositPage() {
     } finally {
       setKycLoading(false);
     }
+  };
+
+  /** When the chosen coin changes, reset the network to that coin's default. */
+  const handleAssetChange = (next: string) => {
+    setAsset(next);
+    setNetwork(DEFAULT_NETWORK[next] ?? (NETWORKS_BY_ASSET[next] ?? [{}])[0]?.value ?? '');
   };
 
   /** Step 1 — choose the coin you want to deposit. */
@@ -133,7 +164,7 @@ export default function DepositPage() {
     setLoading(true);
     setError('');
     try {
-      const res = await api.submitCryptoDeposit(asset, Number(amount));
+      const res = await api.submitCryptoDeposit(asset, Number(amount), selectedNetwork.value);
       setTxRef(res.transaction.id);
       setStep('sent');
     } catch (err) {
@@ -146,6 +177,7 @@ export default function DepositPage() {
   const reset = () => {
     setStep('select');
     setAsset('USDT');
+    setNetwork(DEFAULT_NETWORK.USDT);
     setAmount('');
     setError('');
     setCopied(false);
@@ -249,21 +281,45 @@ export default function DepositPage() {
                 <select
                   className="form-control"
                   value={asset}
-                  onChange={(e) => setAsset(e.target.value)}
+                  onChange={(e) => handleAssetChange(e.target.value)}
                   disabled={loading}
                   style={{ fontSize: '15px', height: '52px' }}
                 >
                   {SUPPORTED_ASSETS.map((a) => (
                     <option key={a.value} value={a.value}>
-                      {a.icon}  {a.label} — {a.network}
+                      {a.icon}  {a.label}
                     </option>
                   ))}
                 </select>
-                <p className="form-hint">
-                  {selectedAsset.icon} {selectedAsset.label} will be sent via the{' '}
-                  <strong>{selectedAsset.network}</strong>.
-                </p>
               </div>
+
+              {networks.length > 1 && (
+                <div className="form-group">
+                  <label>Select Network</label>
+                  <select
+                    className="form-control"
+                    value={network}
+                    onChange={(e) => setNetwork(e.target.value)}
+                    disabled={loading}
+                    style={{ fontSize: '15px', height: '52px' }}
+                  >
+                    {networks.map((n) => (
+                      <option key={n.value} value={n.value}>
+                        {n.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="form-hint">
+                    {selectedAsset.label} can be deposited on more than one network. Pick the{' '}
+                    <strong>{networkLabel}</strong> network to see the correct deposit address.
+                  </p>
+                </div>
+              )}
+
+              <p className="form-hint" style={{ marginBottom: 16 }}>
+                {selectedAsset.icon} {selectedAsset.label} will be sent via the{' '}
+                <strong>{networkLabel}</strong>.
+              </p>
 
               <div className="form-group">
                 <label>Deposit Amount (USD)</label>
@@ -364,7 +420,7 @@ export default function DepositPage() {
               <div>
                 <h4>Pick the right network &amp; confirm</h4>
                 <p>
-                  Confirm the network is <strong>{selectedAsset.network}</strong>, enter the amount you
+                  Confirm the network is <strong>{networkLabel}</strong>, enter the amount you
                   wish to deposit, and confirm the transaction in your wallet.
                 </p>
               </div>
@@ -392,7 +448,7 @@ export default function DepositPage() {
             </div>
             <div className="deposit-address-network">
               <Info size={14} />
-              Network: <strong>{selectedAsset.network}</strong>
+              Network: <strong>{networkLabel}</strong>
             </div>
           </div>
 
@@ -400,7 +456,7 @@ export default function DepositPage() {
           <div className="deposit-warning">
             <AlertCircle size={16} style={{ flexShrink: 0, marginTop: 1 }} />
             <span>
-              <strong>Important:</strong> {selectedAsset.networkNote} Only send {asset} to this address.
+              <strong>Important:</strong> {networkNote} Only send {asset} to this address.
               Double-check the network before confirming your transfer.
             </span>
           </div>
