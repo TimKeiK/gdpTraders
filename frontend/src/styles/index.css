@@ -529,3 +529,17 @@ select.form-control option {
     padding: 0 16px;
   }
 }
+
+/* ============================================================
+   Tidio live chat — push the widget above the mobile bottom nav
+   on small screens so it doesn't block the navigation bar.
+   ============================================================ */
+@media (max-width: 768px) {
+  #tidio-chat,
+  [data-tidio-chat],
+  iframe[title*="tidio"],
+  iframe[title*="Tidio"] {
+    bottom: 76px !important;
+    right: 12px !important;
+  }
+}
