@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, Receipt, MessagesSquare, LogOut, User, Plus, ArrowDownToLine, TrendingUp, Bitcoin } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import TidioChat from '../TidioChat';
 import './DashboardLayout.css';
 
   const navItems: { to: string; label: string; icon: typeof LayoutDashboard; end?: boolean; sidebarOnly?: boolean }[] = [
@@ -108,6 +109,8 @@ export default function DashboardLayout() {
           </NavLink>
         ))}
       </nav>
+
+      <TidioChat />
     </div>
   );
 }
