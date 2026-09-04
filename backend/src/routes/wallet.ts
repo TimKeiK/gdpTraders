@@ -639,8 +639,12 @@ router.get('/investment', async (req: AuthenticatedRequest, res: Response) => {
     dailyRate = fallback.dailyRate;
     durationDays = fallback.durationDays;
     endDate = endDate ?? addWorkingDays(new Date(inv.startDate), fallback.durationDays).toISOString();
-    totalExpectedReturn =
-      totalExpectedReturn ?? computeExpectedReturn(inv.initialDeposit, fallback.dailyRate, fallback.durationDays);
+    // Always recompute the expected payout from the served rate/duration so the
+    // displayed "Daily Accrual" and "Expected Total Payout" stay consistent even
+    // when the stored row carries an older plan snapshot (rates may have changed
+    // since the row was written). Previously this only recomputed when it was
+    // NULL, leaving a stale payout displayed next to updated rates.
+    totalExpectedReturn = computeExpectedReturn(inv.initialDeposit, fallback.dailyRate, fallback.durationDays);
     console.warn(
       `[investment] Investment ${inv.id} (user ${userId}) ${wasNull ? 'has no stored plan snapshot' : `stored ${inv.assignedPlan}/${inv.dailyRate}% which differs from live plan`} — serving current rates (${fallback.name}/${fallback.dailyRate}%). Run \`npm run backfill:investments\` to backfill this row.`,
     );
