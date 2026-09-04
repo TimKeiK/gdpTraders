@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Receipt, MessagesSquare, LogOut, User, Plus, ArrowDownToLine, TrendingUp, Bitcoin } from 'lucide-react';
+import { LayoutDashboard, Receipt, MessagesSquare, LogOut, User, Plus, ArrowDownToLine, TrendingUp, Bitcoin, Gift } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import TidioChat from '../TidioChat';
 import './DashboardLayout.css';
@@ -10,6 +10,8 @@ import './DashboardLayout.css';
   { to: '/dashboard/deposit', label: 'Deposit', icon: Plus },
   { to: '/dashboard/withdraw', label: 'Withdraw', icon: ArrowDownToLine },
   { to: '/dashboard/transactions', label: 'Transactions', icon: Receipt },
+  // Referrals sits right after Transactions (near money-movement pages; reorder freely).
+  { to: '/dashboard/referrals', label: 'Referrals', icon: Gift },
   { to: '/dashboard/support', label: 'Support', icon: MessagesSquare },
   // Profile is now in the mobile bottom nav (was sidebarOnly before, which hid it on
   // small screens). It stays in the sidebar too, so on desktop the sidebar link wins

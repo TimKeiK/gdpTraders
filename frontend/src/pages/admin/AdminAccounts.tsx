@@ -235,6 +235,7 @@ export default function AdminAccounts() {
             <thead>
               <tr>
                 <th>Account</th>
+                <th>Referral</th>
                 <th>Role</th>
                 <th>KYC</th>
                 <th>Balance</th>
@@ -247,7 +248,7 @@ export default function AdminAccounts() {
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={9} className="admin-empty">No accounts match your search.</td></tr>
+                <tr><td colSpan={10} className="admin-empty">No accounts match your search.</td></tr>
               )}
               {filtered.map((u) => (
                 <tr key={u.id}>
@@ -255,6 +256,21 @@ export default function AdminAccounts() {
                     <div><strong>{u.name}</strong></div>
                     <div className="mono" style={{ color: 'var(--gray-400)' }}>{u.email}</div>
                     <div className="mono" style={{ color: 'var(--gray-500)', fontSize: 11 }}>{u.id}</div>
+                  </td>
+                  <td style={{ fontSize: 12 }}>
+                    {u.referredBy ? (
+                      <div title={`Referred by ${u.referredBy.name} (${u.referredBy.id})`}>
+                        <span style={{ color: 'var(--gray-400)' }}>by </span>
+                        <span className="mono">{u.referredBy.email}</span>
+                      </div>
+                    ) : (
+                      <span style={{ color: 'var(--gray-500)' }}>—</span>
+                    )}
+                    {(u.referredCount ?? 0) > 0 && (
+                      <div style={{ color: 'var(--gray-400)' }}>
+                        referred {u.referredCount} client{u.referredCount === 1 ? '' : 's'}
+                      </div>
+                    )}
                   </td>
                   <td><span className={`admin-pill ${ROLE_PILL[u.role] || 'pill-gray'}`}>{u.role}</span></td>
                   <td><span className={`admin-pill ${KYC_PILL[u.kycStatus] || 'pill-gray'}`}>{u.kycStatus}</span></td>

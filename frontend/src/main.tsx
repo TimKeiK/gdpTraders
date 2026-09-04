@@ -27,6 +27,7 @@ import VerifyEmailPage from './pages/dashboard/VerifyEmailPage';
 import DashboardLayout from './components/dashboard/DashboardLayout';
 import OverviewPage from './pages/dashboard/OverviewPage';
 import PnlPage from './pages/dashboard/PnlPage';
+import ReferralsPage from './pages/dashboard/ReferralsPage';
 import DepositPage from './pages/dashboard/DepositPage';
 import WithdrawPage from './pages/dashboard/WithdrawPage';
 import TransactionsPage from './pages/dashboard/TransactionsPage';
@@ -71,6 +72,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="deposit" element={<DepositPage />} />
               <Route path="withdraw" element={<WithdrawPage />} />
               <Route path="transactions" element={<TransactionsPage />} />
+              <Route path="referrals" element={<ReferralsPage />} />
               <Route path="security" element={<SecurityPage />} />
               <Route path="profile" element={<ProfileSettingsPage />} />
               <Route path="tax" element={<TaxPage />} />

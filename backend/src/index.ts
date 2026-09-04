@@ -14,6 +14,7 @@ import walletRoutes from './routes/wallet.js';
 import adminRoutes from './routes/admin.js';
 import strategiesRoutes from './routes/strategies.js';
 import marketRoutes from './routes/market.js';
+import referralRoutes from './routes/referrals.js';
 import { config } from './config.js';
 import { rateLimit } from './middleware/rateLimit.js';
 
@@ -83,6 +84,7 @@ app.use('/api/wallet', walletRoutes);
 app.use('/api/admin', adminRoutes); // /api/admin/*
 app.use('/api/strategies', strategiesRoutes); // Public strategy products
 app.use('/api/market', marketRoutes); // Public cached market data proxy
+app.use('/api/referrals', referralRoutes); // Client referral program
 
 // ---------- 404 ----------
 app.use((_req: Request, res: Response) => {

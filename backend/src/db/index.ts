@@ -28,6 +28,8 @@ export type {
   StrategyAllocation,
   AuditLogEntry,
   Investment,
+  ReferralEarning,
+  DepositConfirmationResult,
 } from './database.js';
 
 // Re-export all functions from the active store
@@ -69,6 +71,14 @@ export const {
   getInvestmentsForUser,
   getActiveInvestmentForUser,
   getDbStats,
+  // Referral program (dual-store parity)
+  findUserByReferralCode,
+  getReferredUserIds,
+  generateUniqueReferralCode,
+  addReferralEarning,
+  getReferralEarningsForUser,
+  getAllReferralEarnings,
+  appendDepositAndReferralCommission,
 } = store;
 
 export const dbMode = useInMemory ? 'in-memory' : 'postgresql';

@@ -114,6 +114,38 @@ export interface LoginResponse {
   };
 }
 
+/** Client-facing referral program summary (own code + referred clients). */
+export interface ReferralSummary {
+  referralCode: string | null;
+  referralLink: string | null;
+  totalEarned: number;
+  referredClients: {
+    id: string;
+    name: string; // masked server-side
+    email: string; // masked server-side
+    signupDate: string;
+    kycStatus: string;
+    totalDeposits: number;
+    totalEarned: number;
+  }[];
+}
+
+/** A platform-wide referral relationship (admin view). */
+export interface AdminReferral {
+  referrer: { id: string; name: string; email: string };
+  referred: { id: string; name: string; email: string };
+  signupDate: string;
+  totalCommissions: number;
+}
+
+/** Referral chain for a single user (admin KYC/AML investigation). */
+export interface AdminReferralChain {
+  user: { id: string; name: string; email: string };
+  referredBy: { id: string; name: string; email: string } | null;
+  upstreamChain: { id: string; name: string; email: string }[];
+  referred: { id: string; name: string; email: string; signupDate: string; totalCommissions: number; depth: number }[];
+}
+
 export interface UserProfile {
   id: string;
   email: string;
@@ -125,6 +157,7 @@ export interface UserProfile {
   withdrawalAddress: string | null;
   withdrawalNetwork: string | null;
   withdrawalAsset: string | null;
+  referralCode?: string | null;
   createdAt: string;
 }
 
@@ -175,10 +208,10 @@ export const authApi = {
     return res;
   },
 
-  async register(email: string, password: string, name: string): Promise<LoginResponse> {
-    const res = await request<LoginResponse>('/auth/register', {
+  async register(email: string, password: string, name: string, referralCode?: string): Promise<LoginResponse & { referralWarning?: string }> {
+    const res = await request<LoginResponse & { referralWarning?: string }>('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ email, password, name }),
+      body: JSON.stringify({ email, password, name, ...(referralCode ? { referralCode } : {}) }),
     });
     setToken(res.token);
     return res;
@@ -323,6 +356,11 @@ export const api = {
   async getInvestment(): Promise<{ investment: ActiveInvestment | null; daysRemaining: number }> {
     return request<{ investment: ActiveInvestment | null; daysRemaining: number }>('/wallet/investment');
   },
+
+  /** Fetches the client's referral code, shareable link, and referred clients. */
+  async getReferrals(): Promise<ReferralSummary> {
+    return request<ReferralSummary>('/referrals/me');
+  },
 };
 // ---------- Admin types ----------
 
@@ -344,6 +382,10 @@ export interface AdminUser {
   pendingWithdrawals: { id: string; asset: string; amount: number; status: string; approvals: number }[];
   processingDeposits: number;
   transactionCount: number;
+  /** Who referred this account (compliance / AML chain tracing). */
+  referredBy?: { id: string; name: string; email: string } | null;
+  /** How many accounts this user has referred. */
+  referredCount?: number;
 }
 
 export interface AdminTransaction extends Transaction {
@@ -495,6 +537,15 @@ export const adminApi = {
     return request<{ transaction: Transaction; message: string }>(`/wallet/withdrawals/${txId}/approve`, {
       method: 'POST',
     });
+  },
+
+  // Referral program (admin / compliance)
+  async getReferrals(): Promise<AdminReferral[]> {
+    return request<AdminReferral[]>('/admin/referrals');
+  },
+
+  async getReferralChain(userId: string): Promise<AdminReferralChain> {
+    return request<AdminReferralChain>(`/admin/referrals/${userId}/chain`);
   },
 };
 

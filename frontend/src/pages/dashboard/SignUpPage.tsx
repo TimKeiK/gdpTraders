@@ -1,16 +1,19 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Bitcoin, Mail, KeyRound, User, ArrowRight, AlertCircle, LogIn } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Bitcoin, Mail, KeyRound, User, ArrowRight, AlertCircle, LogIn, Gift } from 'lucide-react';
 import { authApi } from '../../api/client';
 import PasswordInput from '../../components/PasswordInput';
 import './SignUpPage.css';
 
 export default function SignUpPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  // Prefilled from a referral link, e.g. /signup?ref=ABC12345
+  const [referralCode, setReferralCode] = useState((searchParams.get('ref') ?? '').trim().toUpperCase());
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -31,9 +34,12 @@ export default function SignUpPage() {
     setLoading(true);
     setError('');
     try {
-      await authApi.register(email, password, name);
+      const res = await authApi.register(email, password, name, referralCode || undefined);
       authApi.logout();
-      navigate('/login', { state: { registered: true, needsVerification: true } });
+      // A bad referral code never blocks signup — it is surfaced as a notice.
+      navigate('/login', {
+        state: { registered: true, needsVerification: true, referralWarning: res.referralWarning ?? '' },
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sign up failed. Please try again.');
     } finally {
@@ -103,6 +109,20 @@ export default function SignUpPage() {
               disabled={loading}
               autoComplete="new-password"
               toggleLabel="Show confirm password"
+            />
+          </div>
+
+          <div className="form-group">
+            <label><Gift size={14} /> Referral Code (optional)</label>
+            <input
+              className="form-control"
+              type="text"
+              value={referralCode}
+              onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+              placeholder="e.g. AB12CD34"
+              maxLength={8}
+              disabled={loading}
+              style={{ textTransform: 'uppercase', letterSpacing: 2 }}
             />
           </div>
 

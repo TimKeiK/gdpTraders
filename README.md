@@ -170,14 +170,32 @@ A live E2E reconciliation verified: deposit approval credits the portfolio by ex
 - Daily withdrawal caps per user
 - Helmet + CORS security headers
 
+## Referral Program
+
+Clients earn a **5% commission** on every confirmed deposit made by accounts they referred.
+
+- Each account gets a unique 8-character referral code at registration (legacy accounts are
+  backfilled by the same idempotent `ensureSchema()` migration pass).
+- Signup links are shareable as `FRONTEND_URL/signup?ref=CODE`; the code is pre-filled on the
+  signup page. An unrecognized code never blocks signup — it is surfaced as a notice instead.
+- `referred_by_user_id` is set exactly once, at registration, and never changes. Self-referral
+  is rejected defensively at both the route and the store level.
+- The commission is paid inside the admin deposit-confirmation flow
+  (`POST /api/admin/transactions/:id/confirm-deposit`) and is **atomic** with the depositor's
+  credit: both ledger writes (depositor `deposit` + referrer `referral_commission`, both on the
+  SHA-256 hash chain) and the `referral_earnings` audit row commit or roll back together in a
+  single PostgreSQL transaction. The commission is 5% of the admin-confirmed amount.
+- Denied deposits (`deny-deposit`) never generate a commission.
+- Referral names/emails are masked on the client-facing endpoint.
+
 ## Project Structure
 
 ```
 ├── backend/                  # Node.js/TypeScript API
 │   ├── src/
 │   │   ├── db/               # Dual-mode store: pgStore.ts (PostgreSQL) + database.ts (in-memory)
-│   │   ├── routes/           # auth, kyc, wallet, portfolio, strategies, admin, market
-│   │   ├── lib/              # email.ts (Resend), market.ts (CoinGecko proxy + cache + tests)
+│   │   ├── routes/           # auth, kyc, wallet, portfolio, strategies, admin, market, referrals
+│   │   ├── lib/              # email.ts (Resend), market.ts (CoinGecko proxy + cache), referrals.ts (commission math + masking, tested)
 │   │   ├── config.ts         # Central validated config (fails fast on bad secrets in prod)
 │   │   ├── middleware/       # Auth, role, KYC, rate-limit middleware
 │   │   └── data/             # Strategy definitions
@@ -186,7 +204,7 @@ A live E2E reconciliation verified: deposit approval credits the portfolio by ex
 ├── frontend/                 # React + Vite SPA
 │   ├── src/
 │   │   ├── api/client.ts     # Typed API client
-│   │   ├── pages/dashboard/  # Client portal (incl. DepositPage, WithdrawPage)
+│   │   ├── pages/dashboard/  # Client portal (incl. DepositPage, WithdrawPage, ReferralsPage)
 │   │   ├── pages/admin/      # Staff portal (Dashboard, Accounts, Transactions, Approvals, Ledger, AuditLogs)
 │   │   ├── components/admin/ # AdminLayout (crimson "command center" theme)
 │   │   ├── components/       # Shared UI (CandlestickChart, PasswordInput)
@@ -204,6 +222,7 @@ A live E2E reconciliation verified: deposit approval credits the portfolio by ex
 | `/dashboard/deposit` | Step-by-step crypto deposit guide with copyable addresses |
 | `/dashboard/withdraw` | Withdrawal request form + request history |
 | `/dashboard/transactions` | Personal transaction history |
+| `/dashboard/referrals` | Referral code + shareable link, total earned, and referred-clients table |
 | `/dashboard/security` · `/tax` · `/support` | Account utilities |
 
 ## Admin Portal Pages (staff only)
@@ -211,7 +230,7 @@ A live E2E reconciliation verified: deposit approval credits the portfolio by ex
 | Route | Page |
 |-------|------|
 | `/admin` | Dashboard — users, AUM, volumes, pending items, recent activity |
-| `/admin/accounts` | Every account with portfolio value, inline KYC/role controls, manual credit modal |
+| `/admin/accounts` | Every account with portfolio value, inline KYC/role controls, manual credit modal, plus who referred them and who they referred (compliance chain tracing) |
 | `/admin/transactions` | All transactions; confirm/deny pending crypto deposits |
 | `/admin/approvals` | Multi-sig withdrawal queue (client, amount, destination, 0/2 → 2/2 signatures) |
 | `/admin/ledger` | Append-only ledger with integrity verification |
@@ -220,9 +239,10 @@ A live E2E reconciliation verified: deposit approval credits the portfolio by ex
 ## API Endpoints
 
 ```
-POST   /api/auth/register
+POST   /api/auth/register                 # { email, password, name, referralCode? } → referralCode optional; an invalid code never blocks signup
 POST   /api/auth/login            # { email, password }
 GET    /api/auth/profile
+PATCH  /api/auth/profile         # { name }
 
 GET    /api/portfolio/summary     # derived from the full ledger
 GET    /api/portfolio/allocations
@@ -264,4 +284,10 @@ GET    /api/admin/ledger
 GET    /api/admin/ledger/verify                   # SHA-256 hash-chain check
 GET    /api/admin/audit-logs
 GET    /api/admin/stats
+
+# ---- Referral program ----
+GET    /api/referrals/me                                   # own code, shareable link, total earned, referred clients (masked)
+GET    /api/admin/referrals                                # every referral relationship platform-wide (referrer, referred, signup date, commissions paid)
+GET    /api/admin/referrals/:userId/chain                  # referral graph in both directions for KYC/AML chain investigation
+
 ```

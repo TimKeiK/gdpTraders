@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import pg from 'pg';
+import { computeReferralCommission, generateCode } from '../lib/referrals.js';
 
 const { Pool } = pg;
 
@@ -139,12 +140,51 @@ export async function ensureSchema(): Promise<void> {
   END $$;`);
   // Historical rows default to 'active' so old users still see a plan.
   await pool.query(`UPDATE investments SET status = 'active' WHERE status IS NULL`);
+  // ---- Referral program: users columns + idempotent code backfill + earnings audit table ----
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code VARCHAR(8)`);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_user_id VARCHAR(50)`);
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_users_referral_code ON users(referral_code)`);
+
+  // Backfill a unique 8-char uppercase code for legacy users who don't have one yet.
+  await pool.query(`
+    DO \$\$
+    DECLARE
+      c TEXT;
+      r RECORD;
+    BEGIN
+      FOR r IN SELECT id FROM users WHERE referral_code IS NULL LOOP
+        c := NULL;
+        WHILE c IS NULL LOOP
+          c := upper(substr(md5(random()::text), 1, 8));
+          IF EXISTS (SELECT 1 FROM users WHERE referral_code = c) THEN
+            c := NULL;
+          END IF;
+        END LOOP;
+        UPDATE users SET referral_code = c WHERE id = r.id;
+      END LOOP;
+    END \$\$;`);
+
+  // Commission payout audit trail — kept in addition to the ledger hash-chain so
+  // referral history survives ledger cleanup and is independently queryable.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS referral_earnings (
+      id BIGSERIAL PRIMARY KEY,
+      referrer_user_id VARCHAR(50) NOT NULL,
+      referred_user_id VARCHAR(50) NOT NULL,
+      source_transaction_id VARCHAR(255),
+      asset VARCHAR(10) NOT NULL,
+      amount NUMERIC(20, 8) NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_referral_earnings_referrer ON referral_earnings(referrer_user_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by_user_id)`);
+
 }
 
 // ---------- Types (re-exported from database.ts) ----------
 export type KYCStatus = 'PENDING' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
 export type WalletType = 'hot' | 'warm' | 'cold';
-export type EntryType = 'deposit' | 'withdrawal' | 'trade' | 'fee' | 'interest' | 'profit' | 'loss';
+export type EntryType = 'deposit' | 'withdrawal' | 'trade' | 'fee' | 'interest' | 'profit' | 'loss' | 'referral_commission';
 export type UserRole = 'client' | 'admin' | 'compliance';
 
 export interface User {
@@ -162,6 +202,8 @@ export interface User {
   withdrawalAddress?: string;
   withdrawalNetwork?: string | null;
   withdrawalAsset?: string | null;
+  referralCode?: string;
+  referredByUserId?: string | null;
   createdAt: string;
 }
 
@@ -242,6 +284,22 @@ export interface AuditLogEntry {
   details: string;
   createdAt: string;
 }
+/** A referral commission payout, kept as an audit trail in addition to the ledger entry. */
+export interface ReferralEarning {
+  id: string;
+  referrerUserId: string;
+  referredUserId: string;
+  sourceTransactionId: string;
+   asset: string;
+    amount: number;
+    createdAt: string;
+}
+
+/** Result of atomically creditinga confirmed deposit plus (optionally)a referrer commission. */
+export interface DepositConfirmationResult {
+   depositEntry: LedgerEntry;
+   commissions: { entry: LedgerEntry; earning: ReferralEarning; amount: number }[];
+}
 
 // ---------- Ledger integrity ----------
 
@@ -254,46 +312,122 @@ export async function appendLedgerEntry(
 ): Promise<LedgerEntry> {
   const client = await pool.connect();
   try {
-    const lastRes = await client.query(
-      'SELECT integrity_hash FROM ledger_entries ORDER BY id DESC LIMIT 1'
+    return await appendLedgerEntryOnClient(client, userId, asset, amount, entryType, referenceId);
+   } finally {
+    client.release();
+   }
+}
+
+/** Appends the next hash-chained ledger row on an existing pooled client (used inside a transaction so the caller controls commit/rollback). */
+export async function appendLedgerEntryOnClient(
+  client: any,
+  userId: string,
+  asset: string,
+  amount: number,
+  entryType: EntryType,
+  referenceId: string
+): Promise<LedgerEntry> {
+  const lastRes = await client.query(
+    'SELECT integrity_hash FROM ledger_entries ORDER BY id DESC LIMIT 1'
+  );
+  const previousHash = lastRes.rows[0]?.integrity_hash ?? 'GENESIS';
+
+ const entry = {
+   userId, asset, amount, entryType, referenceId,
+   createdAt: new Date().toISOString(),
+ };
+ const integrityHash = createHash('sha256')
+   .update(previousHash + JSON.stringify(entry))
+   .digest('hex');
+
+ const res = await client.query(
+   `INSERT INTO ledger_entries (user_id, asset, amount, entry_type, reference_id, integrity_hash)
+    VALUES ($1,$2,$3,$4,$5,$6)
+    RETURNING id, user_id, asset, amount, entry_type, reference_id, created_at, integrity_hash`,
+   [userId, asset, amount, entryType, referenceId, integrityHash]
+ );
+ const row = res.rows[0];
+ return {
+   id: String(row.id),
+   userId: row.user_id,
+   asset: row.asset,
+   amount: Number(row.amount),
+   entryType: row.entry_type,
+   referenceId: row.reference_id,
+   createdAt: row.created_at,
+   integrityHash: row.integrity_hash,
+ };
+}
+
+/**
+ * Atomically confirms a deposit ledger credit and, when the depositor was referred,
+ * pays a 5% commission to the referrer (same ledger hash-chain, same asset)and
+ * records the payout in `referral_earnings`. Wrapped in ONE PostgreSQL transaction so
+ * neither the credit northe commission can partially commit. A concurrent hash-chain
+ * (ledger_entries ORDER BY id) is safely serialized by the transaction's write lock.
+
+
+ * The referrer is resolved inside the transaction from the depositor's `referred_by_user_id`
+ * (immutable, set once at registration). The commission amount is 5% of the actual
+ * confirmed/credited amount (the admin-edited value, not the client's declared amount).
+ */
+export async function appendDepositAndReferralCommission(
+  userId: string,
+  asset: string,
+  amount: number,
+  referenceId: string
+): Promise<DepositConfirmationResult> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const depositEntry = await appendLedgerEntryOnClient(client, userId, asset, amount, 'deposit', referenceId);
+
+    const depRes = await client.query(
+      'SELECT referred_by_user_id FROM users WHERE id = $1',
+      [userId]
     );
-    const previousHash = lastRes.rows[0]?.integrity_hash ?? 'GENESIS';
+    const referredBy: string | null | undefined = depRes.rows[0]?.referred_by_user_id ?? null;
 
-    const entry = {
-      userId,
-      asset,
-      amount,
-      entryType,
-      referenceId,
-      createdAt: new Date().toISOString(),
-    };
+    const commissions: { entry: LedgerEntry; earning: ReferralEarning; amount: number }[] = [];
+    // Defensive: the referrer must be a real, existing user (never the depositor
+    // themselves) before any commission is paid.
+    let referrerExists = false;
+    if (referredBy && referredBy !== userId) {
+      const refRes = await client.query('SELECT 1 FROM users WHERE id = $1', [referredBy]);
+      referrerExists = refRes.rows.length > 0;
+    }
+    if (referredBy && referredBy !== userId && referrerExists) {
 
-    const integrityHash = createHash('sha256')
-      .update(previousHash + JSON.stringify(entry))
-      .digest('hex');
-
-    const res = await client.query(
-      `INSERT INTO ledger_entries (user_id, asset, amount, entry_type, reference_id, integrity_hash)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, user_id, asset, amount, entry_type, reference_id, created_at, integrity_hash`,
-      [userId, asset, amount, entryType, referenceId, integrityHash]
-    );
-
-    const row = res.rows[0];
-    return {
-      id: String(row.id),
-      userId: row.user_id,
-      asset: row.asset,
-      amount: Number(row.amount),
-      entryType: row.entry_type,
-      referenceId: row.reference_id,
-      createdAt: row.created_at,
-      integrityHash: row.integrity_hash,
-    };
+      const commissionAmount = computeReferralCommission(amount);
+      if (commissionAmount > 0) {
+        const entry = await appendLedgerEntryOnClient(client, referredBy, asset, commissionAmount, 'referral_commission', referenceId);
+        await client.query(
+          `INSERT INTO referral_earnings (referrer_user_id, referred_user_id, source_transaction_id, asset, amount)
+           VALUES ($1,$2,$3,$4,$5)`,
+          [referredBy, userId, referenceId, asset, commissionAmount]
+        );
+        const earning: ReferralEarning = {
+          id: `${referenceId}-comm`,
+          referrerUserId: referredBy,
+          referredUserId: userId,
+          sourceTransactionId: referenceId,
+          asset,
+          amount: commissionAmount,
+          createdAt: new Date().toISOString(),
+        };
+        commissions.push({ entry, earning, amount: commissionAmount });
+      }
+    }
+    await client.query('COMMIT');
+    return { depositEntry, commissions };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
   } finally {
     client.release();
   }
 }
+
 
 export async function verifyLedgerIntegrity(): Promise<{ valid: boolean; checked: number }> {
   const res = await pool.query(
@@ -321,14 +455,16 @@ export async function verifyLedgerIntegrity(): Promise<{ valid: boolean; checked
 // ---------- Users ----------
 
 export async function addUser(user: User): Promise<void> {
+  const referralCode = user.referralCode?.trim().toUpperCase() || await generateUniqueReferralCode();
   await pool.query(
-    `INSERT INTO users (id, email, password_hash, name, role, kyc_status, ip_whitelist, withdrawal_cap, is_email_verified, email_verification_token, available_withdrawal, withdrawal_address, withdrawal_network, withdrawal_asset, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+    `INSERT INTO users (id, email, password_hash, name, role, kyc_status, ip_whitelist, withdrawal_cap, is_email_verified, email_verification_token, available_withdrawal, withdrawal_address, withdrawal_network, withdrawal_asset, referral_code, referred_by_user_id, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
      ON CONFLICT (id) DO NOTHING`,
     [user.id, user.email, user.passwordHash, user.name, user.role, user.kycStatus,
      user.ipWhitelist, user.withdrawalCap, user.isEmailVerified, user.emailVerificationToken,
      user.availableWithdrawal ?? 0, user.withdrawalAddress ?? null,
-     user.withdrawalNetwork ?? null, user.withdrawalAsset ?? null, user.createdAt]
+     user.withdrawalNetwork ?? null, user.withdrawalAsset ?? null,
+     referralCode, user.referredByUserId ?? null, user.createdAt]
   );
 }
 
@@ -467,7 +603,69 @@ function mapUser(row: any): User {
     withdrawalAddress: row.withdrawal_address ?? undefined,
     withdrawalNetwork: row.withdrawal_network ?? null,
     withdrawalAsset: row.withdrawal_asset ?? null,
+    referralCode: row.referral_code ?? undefined,
+    referredByUserId: row.referred_by_user_id ?? null,
     createdAt: row.created_at,
+  };
+}
+
+// ---------- Referrals (PostgreSQL store, dual-store parity with database.ts) ----------
+
+export async function findUserByReferralCode(code: string): Promise<User | undefined> {
+  const res = await pool.query(
+    'SELECT * FROM users WHERE UPPER(referral_code) = UPPER($1)',
+    [code.trim()]
+  );
+  if (res.rows.length === 0) return undefined;
+  return mapUser(res.rows[0]);
+}
+
+export async function getReferredUserIds(referrerId: string): Promise<string[]> {
+  const res = await pool.query(
+    'SELECT id FROM users WHERE referred_by_user_id = $1',
+    [referrerId]
+  );
+  return res.rows.map((r) => r.id);
+}
+
+export async function generateUniqueReferralCode(): Promise<string> {
+  for (;;) {
+    const code = generateCode();
+    const res = await pool.query('SELECT 1 FROM users WHERE referral_code = $1', [code]);
+    if (res.rows.length === 0) return code;
+  }
+}
+
+export async function addReferralEarning(earning: ReferralEarning): Promise<void> {
+  await pool.query(
+    `INSERT INTO referral_earnings (referrer_user_id, referred_user_id, source_transaction_id, asset, amount)
+     VALUES ($1,$2,$3,$4,$5)`,
+    [earning.referrerUserId, earning.referredUserId, earning.sourceTransactionId, earning.asset, earning.amount]
+  );
+}
+
+export async function getReferralEarningsForUser(referrerUserId: string): Promise<ReferralEarning[]> {
+  const res = await pool.query(
+    'SELECT * FROM referral_earnings WHERE referrer_user_id = $1 ORDER BY created_at DESC',
+    [referrerUserId]
+  );
+  return res.rows.map(mapReferralEarning);
+}
+
+export async function getAllReferralEarnings(): Promise<ReferralEarning[]> {
+  const res = await pool.query('SELECT * FROM referral_earnings ORDER BY created_at DESC');
+  return res.rows.map(mapReferralEarning);
+}
+
+function mapReferralEarning(r: any): ReferralEarning {
+  return {
+    id: String(r.id),
+    referrerUserId: r.referrer_user_id,
+    referredUserId: r.referred_user_id,
+    sourceTransactionId: r.source_transaction_id,
+    asset: r.asset,
+    amount: Number(r.amount),
+    createdAt: r.created_at,
   };
 }
 

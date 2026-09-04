@@ -15,6 +15,10 @@ import {
   addAuditLog,
   appendLedgerEntry,
   verifyLedgerIntegrity,
+  getAllReferralEarnings,
+  getReferredUserIds,
+  getReferralEarningsForUser,
+  appendDepositAndReferralCommission,
   type User,
   type UserRole,
   type KYCStatus,
@@ -24,6 +28,7 @@ import {
 import { requireAuth, requireRole, type AuthenticatedRequest } from '../middleware/auth.js';
 import { recordInvestmentForDeposit } from './wallet.js';
 import { getPlanByAmount, MIN_DEPOSIT } from '../data/plans.js';
+import { computeReferralCommission } from '../lib/referrals.js';
 
 const router = Router();
 
@@ -168,7 +173,22 @@ router.get(
       getAllTransactions(),
       getAllLedger(),
     ]);
-    res.json(users.map((u) => accountSummary(u, ledger, txns)));
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    res.json(
+      await Promise.all(
+        users.map(async (u) => ({
+          ...accountSummary(u, ledger, txns),
+          // Referral surfacing for KYC/AML chain tracing (compliance).
+          referredBy: u.referredByUserId
+            ? (() => {
+                const r = userMap.get(u.referredByUserId!);
+                return r ? { id: r.id, name: r.name, email: r.email } : null;
+              })()
+            : null,
+          referredCount: (await getReferredUserIds(u.id)).length,
+        }))
+      )
+    );
   }
 );
 
@@ -413,7 +433,20 @@ router.post(
       return;
     }
 
-    await appendLedgerEntry(tx.userId, tx.asset, amount, 'deposit', tx.id);
+    // Atomically credit the deposit and (when the depositor was referred) pay
+    // the referrer a 5% commission + referral_earnings audit row — both ledger
+    // writes and the earnings row commit or roll back together in one transaction.
+    const confirmation = await appendDepositAndReferralCommission(tx.userId, tx.asset, amount, tx.id);
+    let commissionNote = '';
+    for (const c of confirmation.commissions) {
+      const referrer = await findUserById(c.earning.referrerUserId);
+      commissionNote += ` Referral commission of ${c.amount} ${tx.asset} credited to ${referrer?.email ?? c.earning.referrerUserId}.`;
+      await addAuditLog(
+        c.earning.referrerUserId,
+        'REFERRAL_COMMISSION',
+        `5% referral commission of ${c.amount} ${tx.asset} earned from deposit ${tx.id} by ${tx.userId} (confirmed by ${req.user!.email})`
+      );
+    }
 
     // Snapshot the investment plan for this confirmed deposit (amounts below
     // the $20 minimum have no plan — the deposit is still credited, but no
@@ -426,9 +459,9 @@ router.post(
       investmentNote = ` Note: below the $${MIN_DEPOSIT} minimum, so no investment plan was assigned.`;
     }
 
-    await addAuditLog(tx.userId, 'DEPOSIT_CONFIRMED', `Deposit ${tx.id} confirmed for ${amount} ${tx.asset} by ${req.user!.email}.${investmentNote}`);
+    await addAuditLog(tx.userId, 'DEPOSIT_CONFIRMED', `Deposit ${tx.id} confirmed for ${amount} ${tx.asset} by ${req.user!.email}.${investmentNote}${commissionNote}`);
 
-    res.json({ transaction: updated, message: `Deposit ${tx.id} confirmed and credited with ${amount} ${tx.asset}.${investmentNote}` });
+    res.json({ transaction: updated, message: `Deposit ${tx.id} confirmed and credited with ${amount} ${tx.asset}.${investmentNote}${commissionNote}` });
   }
 );
 
@@ -459,6 +492,116 @@ router.post(
     await addAuditLog(tx.userId, tx.type === 'Reinvest' ? 'REINVEST_DENIED' : 'DEPOSIT_DENIED', `${tx.type === 'Reinvest' ? 'Reinvestment' : 'Deposit'} ${tx.id} denied by ${req.user!.email}`);
 
     res.json({ transaction: updated, message: `${tx.type === 'Reinvest' ? 'Reinvestment' : 'Deposit'} ${tx.id} denied. No funds credited.` });
+  }
+);
+
+// ---------- Referrals (admin / compliance) ----------
+
+/**
+ * GET /api/admin/referrals
+ * Every referral relationship platform-wide: referrer identity, referred
+ * identity, signup date, and total commissions paid on that relationship.
+ */
+router.get(
+  '/referrals',
+  requireRole(...STAFF),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const [users, earnings] = await Promise.all([
+      getAllUsers(),
+      getAllReferralEarnings(),
+    ]);
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    // Commission totals per (referrer, referred) pair.
+    const paidByPair = new Map<string, number>();
+    for (const e of earnings) {
+      const key = `${e.referrerUserId}::${e.referredUserId}`;
+      paidByPair.set(key, (paidByPair.get(key) ?? 0) + e.amount);
+    }
+
+    const relationships = users
+      .filter((u) => u.referredByUserId)
+      .map((referred) => {
+        const referrer = userMap.get(referred.referredByUserId!);
+        return {
+          referrer: referrer
+            ? { id: referrer.id, name: referrer.name, email: referrer.email }
+            : { id: referred.referredByUserId!, name: 'unknown', email: 'unknown' },
+          referred: { id: referred.id, name: referred.name, email: referred.email },
+          signupDate: referred.createdAt,
+          totalCommissions: paidByPair.get(`${referred.referredByUserId}::${referred.id}`) ?? 0,
+        };
+      });
+
+    res.json(relationships);
+  }
+);
+
+/**
+ * GET /api/admin/referrals/:userId/chain
+ * Walks the referral graph in both directions for KYC/AML chain investigation:
+ * who referred the given user, and everyone downstream they have referred
+ * (recursively), with per-referral commissions paid.
+ */
+router.get(
+  '/referrals/:userId/chain',
+  requireRole(...STAFF),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const userId = String(req.params.userId);
+    const user = await findUserById(userId);
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+
+    const [users, earnings] = await Promise.all([
+      getAllUsers(),
+      getAllReferralEarnings(),
+    ]);
+    const userMap = new Map(users.map((u) => [u.id, u]));
+
+    const earnedByReferred = new Map<string, number>();
+    for (const e of earnings) {
+      earnedByReferred.set(e.referredUserId, (earnedByReferred.get(e.referredUserId) ?? 0) + e.amount);
+    }
+
+    // Upstream: walk referrer links until a user with no referrer (cycle-safe).
+    const referrerIds = new Set<string>();
+    let cursor = user.referredByUserId ?? null;
+    while (cursor && !referrerIds.has(cursor)) {
+      referrerIds.add(cursor);
+      cursor = userMap.get(cursor)?.referredByUserId ?? null;
+    }
+    const referredBy = user.referredByUserId ? userMap.get(user.referredByUserId) ?? null : null;
+
+    // Downstream: recursive walk of everyone this user referred.
+    const buildDownstream = (id: string, depth: number): { id: string; name: string; email: string; signupDate: string; totalCommissions: number; depth: number }[] => {
+      if (depth > 10) return []; // hard cap to guard against pathological loops
+      const direct = users.filter((u) => u.referredByUserId === id);
+      return direct.flatMap((u) => [
+        {
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          signupDate: u.createdAt,
+          totalCommissions: earnedByReferred.get(u.id) ?? 0,
+          depth,
+        },
+        ...buildDownstream(u.id, depth + 1),
+      ]);
+    };
+
+    res.json({
+      user: { id: user.id, name: user.name, email: user.email },
+      referredBy: referredBy
+        ? { id: referredBy.id, name: referredBy.name, email: referredBy.email }
+        : null,
+      upstreamChain: [...referrerIds].map((id) => {
+        const u = userMap.get(id)!;
+        return { id, name: u?.name ?? 'unknown', email: u?.email ?? 'unknown' };
+      }),
+      referred: buildDownstream(userId, 1),
+    });
   }
 );
 

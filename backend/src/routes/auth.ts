@@ -8,6 +8,8 @@ import {
   removeUser,
   findUserByEmail,
   findUserById,
+  findUserByReferralCode,
+  generateUniqueReferralCode,
   setEmailVerified,
   updateUserName,
   updateUserPassword,
@@ -31,7 +33,7 @@ const FRONTEND_URL = config.frontendUrl;
  * POST /api/auth/register
  */
 router.post('/register', async (req: Request, res: Response) => {
-  const { email, password, name } = req.body;
+  const { email, password, name, referralCode } = req.body;
 
   if (!email || !password || !name) {
     res.status(400).json({ error: 'Email, password, and name are required' });
@@ -64,6 +66,24 @@ router.post('/register', async (req: Request, res: Response) => {
     );
     const verificationLink = `${FRONTEND_URL}/verify-email?token=${verificationToken}`;
 
+    // ---- Referral program (optional, never blocks signup) ----
+    // The referral code is resolved BEFORE the account is persisted so
+    // referred_by_user_id is written once, at registration, and never changes.
+    const providedReferralCode = typeof referralCode === 'string' ? referralCode.trim().toUpperCase() : '';
+    let referredByUserId: string | null = null;
+    let referralWarning: string | undefined;
+    if (providedReferralCode) {
+      const referrer = await findUserByReferralCode(providedReferralCode);
+      // Defensive self-referral guard: a code can never refer the account it belongs to.
+      if (referrer && referrer.id !== userId) {
+        referredByUserId = referrer.id;
+        await addAuditLog(referrer.id, 'REFERRAL_LINKED', `New registration ${normalizedEmail} used referral code ${providedReferralCode}`);
+      } else if (!referrer) {
+        referralWarning = `Referral code "${providedReferralCode}" was not recognized. Your account was created without a referral.`;
+      }
+    }
+    const newReferralCode = await generateUniqueReferralCode();
+
     // Persist first so the account always exists before any email goes out.
     const user: User = {
       id: userId,
@@ -77,6 +97,8 @@ router.post('/register', async (req: Request, res: Response) => {
       isEmailVerified: false,
       emailVerificationToken: verificationToken,
       availableWithdrawal: 0,
+      referralCode: newReferralCode,
+      referredByUserId,
       createdAt: new Date().toISOString(),
     };
     await addUser(user);
@@ -106,6 +128,7 @@ router.post('/register', async (req: Request, res: Response) => {
         ? 'Registered. Please check your email to verify your account before logging in.'
         : 'Registered, but the verification email could not be sent. Please contact support to verify your account.',
       emailSent,
+      referralWarning,
       user: {
         id: user.id,
         email: user.email,
@@ -113,6 +136,7 @@ router.post('/register', async (req: Request, res: Response) => {
         role: user.role,
         kycStatus: user.kycStatus,
         isEmailVerified: user.isEmailVerified,
+        referralCode: user.referralCode,
       },
     });
   } catch (error) {
@@ -236,6 +260,7 @@ router.get('/profile', requireAuth, (req: AuthenticatedRequest, res: Response) =
         withdrawalAddress: user.withdrawalAddress ?? null,
     withdrawalNetwork: user.withdrawalNetwork ?? null,
     withdrawalAsset: user.withdrawalAsset ?? null,
+    referralCode: user.referralCode ?? null,
     createdAt: user.createdAt,
   });
 });

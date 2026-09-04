@@ -1,4 +1,5 @@
 import { createHash } from 'crypto';
+import { generateCode, computeReferralCommission } from '../lib/referrals.js';
 
 /**
  * In-memory database implementing the core financial safety rules from backend.md:
@@ -13,7 +14,7 @@ import { createHash } from 'crypto';
 
 export type KYCStatus = 'PENDING' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
 export type WalletType = 'hot' | 'warm' | 'cold';
-export type EntryType = 'deposit' | 'withdrawal' | 'trade' | 'fee' | 'interest' | 'profit' | 'loss';
+export type EntryType = 'deposit' | 'withdrawal' | 'trade' | 'fee' | 'interest' | 'profit' | 'loss' | 'referral_commission';
 export type UserRole = 'client' | 'admin' | 'compliance';
 
 export interface User {
@@ -34,6 +35,10 @@ export interface User {
   withdrawalNetwork?: string | null;
   /** Default coin for withdrawals (e.g. USDT, BTC, ETH). */
   withdrawalAsset?: string | null;
+  /** Unique 8-char referral code for this account (generated at registration; backfilled for legacy rows). */ 
+  referralCode?: string;
+  /** The user who referred this account (set once at registration, then immutable). */ 
+  referredByUserId?: string | null;
   createdAt: string;
 }
 
@@ -118,6 +123,25 @@ export interface AuditLogEntry {
   createdAt: string;
 }
 
+/** A referral commission payout, kept as an audit trail in addition to the ledger entry. */
+export interface ReferralEarning {
+
+  id: string;
+  referrerUserId: string;
+  referredUserId: string;
+  sourceTransactionId: string;
+  asset: string;
+  amount: number;
+  createdAt: string;
+}
+
+/** Result of atomically crediting a confirmed deposit and (optionally)a referrer commission. */
+export interface DepositConfirmationResult{
+ 
+  depositEntry: LedgerEntry;
+  commissions: { entry: LedgerEntry; earning: ReferralEarning; amount: number }[];
+}
+
 // ---------- In-memory store ----------
 
 type Store = {
@@ -131,6 +155,7 @@ type Store = {
   auditLogs: AuditLogEntry[];
   withdrawalRequests: Map<string, Transaction>;
   investments: Map<string, Investment>;
+  referralEarnings: ReferralEarning[];
 };
 
 const store: Store = {
@@ -144,6 +169,7 @@ const store: Store = {
   auditLogs: [],
   withdrawalRequests: new Map(),
   investments: new Map(),
+  referralEarnings: [],
 };
 
 // ---------- Investments ----------
@@ -375,6 +401,82 @@ export function getLedgerForUser(userId: string): LedgerEntry[] {
 export function getAllLedger(): LedgerEntry[] {
   return [...store.ledger];
 }
+
+// ---------- Referrals (dual-store parity with pgStore) ----------
+
+export function addReferralEarning(earning: ReferralEarning): void {
+ store.referralEarnings.push(earning);
+}
+
+/** All commission payouts received by a referrer. */ 
+export function getReferralEarningsForUser(referrerUserId: string): ReferralEarning[] {
+ return store.referralEarnings.filter((e) => e.referrerUserId === referrerUserId);
+}
+
+export function getAllReferralEarnings(): ReferralEarning[] {
+ return [...store.referralEarnings];
+}
+
+/** Finds a user by theirs unique, 8-char referral code. */ 
+export function findUserByReferralCode(code: string): User | undefined{
+ const normalized = code.trim().toUpperCase();
+ return [...store.users.values()].find((u) => (u.referralCode ?? '').toUpperCase() === normalized);
+}
+
+/** User IDs this user has referred (referral relationship, platform-wide). */ 
+export function getReferredUserIds(referrerId: string): string[] {
+ return [...store.users.values()]
+   .filter((u) => u.referredByUserId === referrerId)
+   .map((u) => u.id);
+}
+
+/** Generates an 8-char referral code guaranteed unused within the store. */ 
+export function generateUniqueReferralCode(): string {
+ for (;;) {
+   const code = generateCode();
+   if (store.users.size === 0) return code;
+   if ([...store.users.values()].every((u) => (u.referralCode ?? '').toUpperCase() !== code)) return code;
+ }
+}
+
+/**
+ * Atomically appends the confirmed-deposit ledger credit and, when the depositing
+ * user was referred, a 5% commission ledger credit to the referrer plus a
+ * referral_earnings audit row. In-memory mode this is synchronousand atomic
+ * by construction; PostgreSQL mode wraps the same in a single DB transaction.
+ */
+export function appendDepositAndReferralCommission(
+  userId: string,
+  asset: string,
+  amount: number,
+  referenceId: string
+): DepositConfirmationResult {
+  const depositEntry = appendLedgerEntry(userId, asset, amount, 'deposit', referenceId);
+  const referredBy = store.users.get(userId)?.referredByUserId;
+  // Defensive: the referrer must be a real, existing user (never the depositor
+  // themselves) before any commission is paid.
+  const referrerExists = referredBy ? store.users.has(referredBy) : false;
+  const commissions: { entry: LedgerEntry; earning: ReferralEarning; amount: number }[] = [];
+  if (referredBy && referredBy !== userId && referrerExists) {
+    const cAmount = computeReferralCommission(amount);
+    if (cAmount > 0) {
+      const entry = appendLedgerEntry(referredBy, asset, cAmount, 'referral_commission', referenceId);
+      const earning: ReferralEarning = {
+        id: `ref_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+        referrerUserId: referredBy,
+        referredUserId: userId,
+        sourceTransactionId: referenceId,
+        asset,
+        amount: cAmount,
+        createdAt: new Date().toISOString(),
+      };
+      store.referralEarnings.push(earning);
+      commissions.push({ entry , earning , amount: cAmount });
+    }
+  }
+  return { depositEntry , commissions };
+}
+
 
 export function getDbStats() {
   return {

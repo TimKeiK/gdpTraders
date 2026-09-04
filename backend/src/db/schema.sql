@@ -129,3 +129,21 @@ CREATE INDEX IF NOT EXISTS idx_ledger_created ON ledger_entries(created_at);
 CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_wallets_user ON wallets(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
+
+-- Referral program columns (backfilled by ensureSchema at startup for any legacy rows).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code VARCHAR(8);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_user_id VARCHAR(50);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_users_referral_code ON users(referral_code);
+CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by_user_id);
+
+-- Audit trail for every referral commission payout (kept in addition to the ledger).
+CREATE TABLE IF NOT EXISTS referral_earnings (
+    id BIGSERIAL PRIMARY KEY,
+    referrer_user_id VARCHAR(50) NOT NULL,
+    referred_user_id VARCHAR(50) NOT NULL,
+    source_transaction_id VARCHAR(255),
+    asset VARCHAR(10) NOT NULL,
+    amount NUMERIC(20, 8) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_referral_earnings_referrer ON referral_earnings(referrer_user_id);
