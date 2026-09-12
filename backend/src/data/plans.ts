@@ -45,6 +45,15 @@ export function getPlanByAmount(amount: number): InvestmentPlan | null {
   return null; // unreachable — Rhodium is unbounded
 }
 
+/**
+ * Deterministic plan lookup by name (case-insensitive).
+ * Returns null when no plan matches the given name.
+ */
+export function getPlanByName(name: string): InvestmentPlan | null {
+  const wanted = name.trim().toLowerCase();
+  return INVESTMENT_PLANS.find((p) => p.name.toLowerCase() === wanted) ?? null;
+}
+
 /** Clear validation error thrown when a deposit is below the plan minimum. */
 export class MinimumDepositError extends Error {
   constructor() {

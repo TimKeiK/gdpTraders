@@ -68,6 +68,7 @@ export const {
   getLedgerForUser,
   getAllLedger,
   addInvestment,
+  updateInvestment,
   getInvestmentsForUser,
   getActiveInvestmentForUser,
   getDbStats,

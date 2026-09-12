@@ -386,6 +386,21 @@ export interface AdminUser {
   referredBy?: { id: string; name: string; email: string } | null;
   /** How many accounts this user has referred. */
   referredCount?: number;
+  /** The client's active investment (plan snapshot) — null if none / staff. */
+  investment?: AdminInvestment | null;
+}
+
+/** A client's active investment as surfaced to admins (plan override UI). */
+export interface AdminInvestment {
+  id: string;
+  planName: string | null;
+  initialDeposit: number;
+  dailyRate: number | null;
+  durationDays: number | null;
+  startDate: string;
+  endDate: string | null;
+  totalExpectedReturn: number | null;
+  status: string;
 }
 
 export interface AdminTransaction extends Transaction {
@@ -487,6 +502,14 @@ export const adminApi = {
     return request<{ userId: string; availableWithdrawal: number }>(`/admin/users/${userId}/withdrawal-amount`, {
       method: 'POST',
       body: JSON.stringify({ amount }),
+    });
+  },
+
+  /** Admin override — change or set a client's investment plan (reflects on their dashboard). */
+  async setInvestmentPlan(userId: string, planName: string): Promise<{ userId: string; message: string }> {
+    return request<{ userId: string; message: string }>(`/admin/users/${userId}/investment-plan`, {
+      method: 'POST',
+      body: JSON.stringify({ planName }),
     });
   },
 

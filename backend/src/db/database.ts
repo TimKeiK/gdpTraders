@@ -77,6 +77,9 @@ export interface Investment {
   endDate: string | null; // start + durationDays working days (weekends skipped)
   totalExpectedReturn: number | null; // deposit * (1 + dailyRate/100 * durationDays)
   status: string; // 'active' | 'matured' | 'cancelled' | 'under_review'
+  /** True when an admin manually overrode this row's plan. Auto-assigned rows
+   *  omit this; the runtime amount-based fallback must not revert an override. */
+  planOverride?: boolean;
 }
 
 export interface LedgerEntry {
@@ -175,6 +178,11 @@ const store: Store = {
 // ---------- Investments ----------
 
 export function addInvestment(inv: Investment): void {
+  store.investments.set(inv.id, inv);
+}
+
+/** Replaces an existing investment row in place (used for admin plan overrides). */
+export function updateInvestment(inv: Investment): void {
   store.investments.set(inv.id, inv);
 }
 

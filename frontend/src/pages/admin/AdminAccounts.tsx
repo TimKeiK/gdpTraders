@@ -10,10 +10,12 @@ import {
   CheckCircle,
   DollarSign,
   Lock,
+  TrendingUp,
   X,
 } from 'lucide-react';
 import { adminApi, formatCurrency, type AdminUser } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
+import { INVESTMENT_PLANS } from '../../data/plans';
 import './admin.css';
 
 const KYC_PILL: Record<string, string> = {
@@ -30,6 +32,14 @@ const ROLE_PILL: Record<string, string> = {
 };
 
 const ASSETS = ['USDT', 'BTC', 'ETH'];
+
+/** The 5 investment tiers, mapped to the backend plan names (no "Plan" suffix). */
+const PLAN_OPTIONS = INVESTMENT_PLANS.map((p) => ({
+  value: p.name.replace(' Plan', ''),
+  label: `${p.icon} ${p.name}`,
+  dailyAccrual: p.dailyAccrual,
+  duration: p.duration,
+}));
 
 export default function AdminAccounts() {
   const { user: me } = useAuth();
@@ -60,6 +70,12 @@ export default function AdminAccounts() {
   const [wdAmount, setWdAmount] = useState('');
   const [wdBusy, setWdBusy] = useState(false);
   const [wdErr, setWdErr] = useState('');
+
+  // Investment-plan override modal state (change/set a client's plan)
+  const [planFor, setPlanFor] = useState<AdminUser | null>(null);
+  const [planName, setPlanName] = useState('');
+  const [planBusy, setPlanBusy] = useState(false);
+  const [planErr, setPlanErr] = useState('');
 
   const load = () => {
     adminApi
@@ -199,6 +215,32 @@ export default function AdminAccounts() {
       setWdErr(e instanceof Error ? e.message : 'Failed to set available withdrawal');
     } finally {
       setWdBusy(false);
+    }
+  };
+
+  const openPlan = (u: AdminUser) => {
+    setPlanFor(u);
+    setPlanName(u.investment?.planName ? u.investment.planName.replace(' Plan', '') : '');
+    setPlanErr('');
+  };
+
+  const submitPlan = async () => {
+    if (!planFor) return;
+    if (!planName) {
+      setPlanErr('Select an investment plan.');
+      return;
+    }
+    setPlanBusy(true);
+    setPlanErr('');
+    try {
+      await adminApi.setInvestmentPlan(planFor.id, planName);
+      setMsg(`Investment plan for ${planFor.email} set to ${planName} Plan`);
+      setPlanFor(null);
+      load();
+    } catch (e) {
+      setPlanErr(e instanceof Error ? e.message : 'Failed to update investment plan');
+    } finally {
+      setPlanBusy(false);
     }
   };
 
@@ -348,6 +390,9 @@ export default function AdminAccounts() {
                           </button>
                           <button className="admin-btn" onClick={() => openWithdraw(u)} title="Set how much this client can withdraw">
                             <Lock size={14} /> Withdrawal
+                          </button>
+                          <button className="admin-btn" onClick={() => openPlan(u)} title="Change or set this client's investment plan (reflects on their dashboard)">
+                            <TrendingUp size={14} /> Plan
                           </button>
                         </>
                       )}
@@ -516,6 +561,60 @@ export default function AdminAccounts() {
               <button className="admin-btn" onClick={() => setWithdrawFor(null)} disabled={wdBusy}>Cancel</button>
               <button className="admin-btn primary" onClick={submitWithdraw} disabled={wdBusy} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Lock size={16} /> {wdBusy ? 'Saving…' : 'Save Available Withdrawal'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Set investment plan modal (admin override) */}
+      {planFor && (
+        <div className="admin-modal-backdrop" onClick={() => !planBusy && setPlanFor(null)}>
+          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <h3>Set Investment Plan</h3>
+                <p className="admin-modal-sub">
+                  Override the investment plan for <strong>{planFor.name}</strong> ({planFor.email}).
+                  This updates their dashboard (Overview &amp; Profile Settings) immediately.
+                  {planFor.investment?.planName
+                    ? ` Current plan: ${planFor.investment.planName} Plan — ${formatCurrency(planFor.investment.initialDeposit)} deposit.`
+                    : ' No active investment plan yet.'}
+                </p>
+              </div>
+              <button className="admin-btn ghost" onClick={() => !planBusy && setPlanFor(null)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {planErr && <div className="admin-msg err"><AlertCircle size={16} /> {planErr}</div>}
+
+            <div className="form-group">
+              <label>Investment plan</label>
+              <select
+                className="form-control"
+                value={planName}
+                onChange={(e) => setPlanName(e.target.value)}
+                disabled={planBusy}
+              >
+                <option value="">Select a plan…</option>
+                {PLAN_OPTIONS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label} — {p.dailyAccrual}% daily · {p.duration} working days
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="admin-modal-actions">
+              <button className="admin-btn" onClick={() => setPlanFor(null)} disabled={planBusy}>Cancel</button>
+              <button
+                className="admin-btn primary"
+                onClick={submitPlan}
+                disabled={planBusy}
+                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <TrendingUp size={16} /> {planBusy ? 'Saving…' : 'Set Plan'}
               </button>
             </div>
           </div>

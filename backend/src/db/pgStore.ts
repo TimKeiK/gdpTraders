@@ -128,6 +128,9 @@ export async function ensureSchema(): Promise<void> {
   await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS end_date TIMESTAMP`);
   await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS total_expected_return NUMERIC(20, 2)`);
   await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active'`);
+  // Admin plan overrides: when true the runtime amount-based fallback must not
+  // revert this row's plan (e.g. an admin manually upgraded a client's tier).
+  await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS plan_override BOOLEAN DEFAULT FALSE`);
   // Relax NOT NULL on the plan columns of older tables so historical rows
   // (which have no plan snapshot yet) do not break reads or the backfill.
   await pool.query(`DO $$ DECLARE c text; BEGIN
@@ -231,6 +234,8 @@ export interface Investment {
   endDate: string | null;
   totalExpectedReturn: number | null;
   status: string;
+  /** True when an admin manually overrode this row's plan (see wallet.ts fallback). */
+  planOverride?: boolean;
 }
 
 export interface DepositAddress {
@@ -510,11 +515,31 @@ export async function setAvailableWithdrawal(userId: string, amount: number): Pr
 
 export async function addInvestment(inv: Investment): Promise<void> {
   await pool.query(
-    `INSERT INTO investments (id, user_id, initial_deposit, assigned_plan, daily_rate, duration_days, start_date, end_date, total_expected_return, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    `INSERT INTO investments (id, user_id, initial_deposit, assigned_plan, daily_rate, duration_days, start_date, end_date, total_expected_return, status, plan_override)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      ON CONFLICT (id) DO NOTHING`,
     [inv.id, inv.userId, inv.initialDeposit, inv.assignedPlan, inv.dailyRate,
-     inv.durationDays, inv.startDate, inv.endDate, inv.totalExpectedReturn, inv.status]
+     inv.durationDays, inv.startDate, inv.endDate, inv.totalExpectedReturn, inv.status, inv.planOverride ?? false]
+  );
+}
+
+/** Replaces the plan snapshot of an existing investment row in place.
+ *  Used by the admin investment-plan override so the client's Overview and
+ *  Profile Settings (both read the investments table) reflect the change. */
+export async function updateInvestment(inv: Investment): Promise<void> {
+  await pool.query(
+    `INSERT INTO investments (id, user_id, initial_deposit, assigned_plan, daily_rate, duration_days, start_date, end_date, total_expected_return, status, plan_override)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     ON CONFLICT (id) DO UPDATE SET
+       assigned_plan = EXCLUDED.assigned_plan,
+       daily_rate = EXCLUDED.daily_rate,
+       duration_days = EXCLUDED.duration_days,
+       end_date = EXCLUDED.end_date,
+       total_expected_return = EXCLUDED.total_expected_return,
+       status = EXCLUDED.status,
+       plan_override = EXCLUDED.plan_override`,
+    [inv.id, inv.userId, inv.initialDeposit, inv.assignedPlan, inv.dailyRate,
+     inv.durationDays, inv.startDate, inv.endDate, inv.totalExpectedReturn, inv.status, inv.planOverride ?? false]
   );
 }
 
@@ -531,6 +556,7 @@ function mapInvestment(r: any): Investment {
     endDate: r.end_date ? new Date(r.end_date).toISOString() : null,
     totalExpectedReturn: r.total_expected_return != null ? Number(r.total_expected_return) : null,
     status: r.status ?? 'active',
+    planOverride: !!r.plan_override,
   };
 }
 

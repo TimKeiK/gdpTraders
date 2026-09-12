@@ -627,6 +627,9 @@ router.get('/investment', async (req: AuthenticatedRequest, res: Response) => {
   const fallback = getPlanByAmount(inv.initialDeposit);
   if (
     fallback &&
+    // Admin plan overrides are authoritative — never revert them to the
+    // amount-based plan (e.g. an admin manually upgraded a client's tier).
+    !inv.planOverride &&
     (planName == null ||
       dailyRate == null ||
       durationDays == null ||

@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid';
 import {
   getAuditLogs,
   getAllLedger,
+  getLedgerForUser,
   getAllTransactions,
   getAllUsers,
   getDbStats,
@@ -19,15 +20,26 @@ import {
   getReferredUserIds,
   getReferralEarningsForUser,
   appendDepositAndReferralCommission,
+  getActiveInvestmentForUser,
+  addInvestment,
+  updateInvestment,
   type User,
   type UserRole,
   type KYCStatus,
   type Transaction,
   type LedgerEntry,
+  type Investment,
 } from '../db/index.js';
 import { requireAuth, requireRole, type AuthenticatedRequest } from '../middleware/auth.js';
 import { recordInvestmentForDeposit } from './wallet.js';
-import { getPlanByAmount, MIN_DEPOSIT } from '../data/plans.js';
+import {
+  getPlanByAmount,
+  getPlanByName,
+  INVESTMENT_PLANS,
+  addWorkingDays,
+  computeExpectedReturn,
+  MIN_DEPOSIT,
+} from '../data/plans.js';
 import { computeReferralCommission } from '../lib/referrals.js';
 
 const router = Router();
@@ -176,17 +188,34 @@ router.get(
     const userMap = new Map(users.map((u) => [u.id, u]));
     res.json(
       await Promise.all(
-        users.map(async (u) => ({
-          ...accountSummary(u, ledger, txns),
-          // Referral surfacing for KYC/AML chain tracing (compliance).
-          referredBy: u.referredByUserId
-            ? (() => {
-                const r = userMap.get(u.referredByUserId!);
-                return r ? { id: r.id, name: r.name, email: r.email } : null;
-              })()
-            : null,
-          referredCount: (await getReferredUserIds(u.id)).length,
-        }))
+        users.map(async (u) => {
+          const activeInv = await getActiveInvestmentForUser(u.id);
+          return {
+            ...accountSummary(u, ledger, txns),
+            // Referral surfacing for KYC/AML chain tracing (compliance).
+            referredBy: u.referredByUserId
+              ? (() => {
+                  const r = userMap.get(u.referredByUserId!);
+                  return r ? { id: r.id, name: r.name, email: r.email } : null;
+                })()
+              : null,
+            referredCount: (await getReferredUserIds(u.id)).length,
+            // The client's active investment (admin plan override display).
+            investment: activeInv
+              ? {
+                  id: activeInv.id,
+                  planName: activeInv.assignedPlan,
+                  initialDeposit: activeInv.initialDeposit,
+                  dailyRate: activeInv.dailyRate,
+                  durationDays: activeInv.durationDays,
+                  startDate: activeInv.startDate,
+                  endDate: activeInv.endDate,
+                  totalExpectedReturn: activeInv.totalExpectedReturn,
+                  status: activeInv.status,
+                }
+              : null,
+          };
+        })
       )
     );
   }
@@ -274,6 +303,95 @@ router.post(
       `Available withdrawal set to ${parsed} by ${req.user!.email}`
     );
     res.json({ userId: id, availableWithdrawal: parsed });
+  }
+);
+
+/**
+ * POST /api/admin/users/:id/investment-plan
+ * Admin override: change or set a client's active investment plan. The client's
+ * Overview and Profile Settings pages both read straight from the investments
+ * table (GET /wallet/investment), so an override here reflects there immediately.
+ * The row is flagged planOverride so the amount-based runtime fallback does not
+ * revert it. Body: { planName } — one of Bronze/Silver/Diamond/Gold/Rhodium.
+ */
+router.post(
+  '/users/:id/investment-plan',
+  requireRole(...STAFF),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const id = String(req.params.id);
+    const { planName } = req.body as { planName?: string };
+    const user = await findUserById(id);
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+    const plan = planName ? getPlanByName(planName) : null;
+    if (!plan) {
+      res.status(400).json({
+        error: `Unknown investment plan. Valid: ${INVESTMENT_PLANS.map((p) => p.name).join(', ')}`,
+      });
+      return;
+    }
+
+    let inv = await getActiveInvestmentForUser(id);
+
+    if (!inv) {
+      // No active investment yet (e.g. the client never reached the plan
+      // minimum). Derive the initial deposit from the ledger's confirmed
+      // deposits, falling back to the plan minimum so the expected return is
+      // still meaningful — then create a new active plan record.
+      const ledger = await getLedgerForUser(id);
+      const initialDeposit = ledger
+        .filter((e) => e.entryType === 'deposit')
+        .reduce((sum, e) => sum + e.amount, 0) || plan.min;
+      const startDate = new Date();
+      inv = {
+        id: `INV-${nanoid(10)}`,
+        userId: id,
+        initialDeposit,
+        assignedPlan: plan.name,
+        dailyRate: plan.dailyRate,
+        durationDays: plan.durationDays,
+        startDate: startDate.toISOString(),
+        endDate: addWorkingDays(startDate, plan.durationDays).toISOString(),
+        totalExpectedReturn: computeExpectedReturn(initialDeposit, plan.dailyRate, plan.durationDays),
+        status: 'active',
+        planOverride: true,
+      };
+      await addInvestment(inv);
+    } else {
+      const updated: Investment = {
+        ...inv,
+        assignedPlan: plan.name,
+        dailyRate: plan.dailyRate,
+        durationDays: plan.durationDays,
+        // Recompute the maturity date from the (unchanged) start date so the
+        // "days remaining" counter reflects the new duration.
+        endDate: addWorkingDays(new Date(inv.startDate), plan.durationDays).toISOString(),
+        totalExpectedReturn: computeExpectedReturn(inv.initialDeposit, plan.dailyRate, plan.durationDays),
+        status: 'active',
+        planOverride: true,
+      };
+      await updateInvestment(updated);
+      inv = updated;
+    }
+
+    await addAuditLog(
+      id,
+      'INVESTMENT_PLAN_SET',
+      `Investment plan overridden to ${plan.name} (${plan.dailyRate}% daily, ${plan.durationDays} working days) by ${req.user!.email}`
+    );
+
+    res.json({
+      userId: id,
+      investment: {
+        planName: inv.assignedPlan,
+        dailyRate: inv.dailyRate,
+        durationDays: inv.durationDays,
+        totalExpectedReturn: inv.totalExpectedReturn,
+      },
+      message: `Investment plan for ${user.email} set to ${plan.name} Plan.`,
+    });
   }
 );
 
