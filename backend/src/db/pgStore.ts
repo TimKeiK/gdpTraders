@@ -531,6 +531,7 @@ export async function updateInvestment(inv: Investment): Promise<void> {
     `INSERT INTO investments (id, user_id, initial_deposit, assigned_plan, daily_rate, duration_days, start_date, end_date, total_expected_return, status, plan_override)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      ON CONFLICT (id) DO UPDATE SET
+       initial_deposit = EXCLUDED.initial_deposit,
        assigned_plan = EXCLUDED.assigned_plan,
        daily_rate = EXCLUDED.daily_rate,
        duration_days = EXCLUDED.duration_days,
