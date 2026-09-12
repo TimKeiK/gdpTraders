@@ -396,6 +396,106 @@ router.post(
 );
 
 /**
+ * POST /api/admin/users/:id/initial-deposit
+ * Admin override: change a client's initial deposit — the amount shown on their
+ * Overview / Profile Settings investment card. When the client's plan is NOT
+ * admin-overridden, the plan is re-derived from the new amount (same logic as a
+ * real deposit assigning a plan); when it IS overridden, the plan is kept and
+ * only the amount / expected return are updated. Body: { amount }
+ */
+router.post(
+  '/users/:id/initial-deposit',
+  requireRole(...STAFF),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const id = String(req.params.id);
+    const { amount } = req.body as { amount?: number };
+    const user = await findUserById(id);
+    if (!user) {
+      res.status(404).json({ error: 'User not found' });
+      return;
+    }
+    const parsed = Number(amount);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      res.status(400).json({ error: 'Initial deposit must be a positive number.' });
+      return;
+    }
+
+    let inv = await getActiveInvestmentForUser(id);
+    const isOverride = inv?.planOverride ?? false;
+
+    let planName: string;
+    let dailyRate: number;
+    let durationDays: number;
+    if (inv && isOverride) {
+      // Admin-assigned plan is kept regardless of the new amount.
+      planName = inv.assignedPlan!;
+      dailyRate = inv.dailyRate!;
+      durationDays = inv.durationDays!;
+    } else {
+      const plan = getPlanByAmount(parsed);
+      if (!plan) {
+        res.status(400).json({
+          error: `Initial deposit must be at least $${MIN_DEPOSIT} (${INVESTMENT_PLANS[0].name} Plan minimum).`,
+        });
+        return;
+      }
+      planName = plan.name;
+      dailyRate = plan.dailyRate;
+      durationDays = plan.durationDays;
+    }
+
+    if (!inv) {
+      const startDate = new Date();
+      inv = {
+        id: `INV-${nanoid(10)}`,
+        userId: id,
+        initialDeposit: parsed,
+        assignedPlan: planName,
+        dailyRate,
+        durationDays,
+        startDate: startDate.toISOString(),
+        endDate: addWorkingDays(startDate, durationDays).toISOString(),
+        totalExpectedReturn: computeExpectedReturn(parsed, dailyRate, durationDays),
+        status: 'active',
+        planOverride: false,
+      };
+      await addInvestment(inv);
+    } else {
+      const updated: Investment = {
+        ...inv,
+        initialDeposit: parsed,
+        assignedPlan: planName,
+        dailyRate,
+        durationDays,
+        endDate: addWorkingDays(new Date(inv.startDate), durationDays).toISOString(),
+        totalExpectedReturn: computeExpectedReturn(parsed, dailyRate, durationDays),
+        status: 'active',
+      };
+      await updateInvestment(updated);
+      inv = updated;
+    }
+
+    await addAuditLog(
+      id,
+      'INVESTMENT_DEPOSIT_SET',
+      `Initial deposit overridden to ${parsed} (plan: ${inv.assignedPlan}) by ${req.user!.email}`
+    );
+
+    res.json({
+      userId: id,
+      investment: {
+        initialDeposit: inv.initialDeposit,
+        planName: inv.assignedPlan,
+        dailyRate: inv.dailyRate,
+        durationDays: inv.durationDays,
+        totalExpectedReturn: inv.totalExpectedReturn,
+      },
+      message: `Initial deposit for ${user.email} set to ${parsed} (${inv.assignedPlan} Plan).`,
+    });
+  }
+);
+
+/**
  * POST /api/admin/users/:id/deposit
  * Manually credit a client's account (admin control of funds).
  * An admin credit IS PROFIT: it records a completed deposit transaction

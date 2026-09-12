@@ -513,6 +513,14 @@ export const adminApi = {
     });
   },
 
+  /** Admin override — change a client's initial deposit (reflects on their dashboard). */
+  async setInitialDeposit(userId: string, amount: number): Promise<{ userId: string; message: string }> {
+    return request<{ userId: string; message: string }>(`/admin/users/${userId}/initial-deposit`, {
+      method: 'POST',
+      body: JSON.stringify({ amount }),
+    });
+  },
+
   async manualDeposit(
     userId: string,
     asset: string,

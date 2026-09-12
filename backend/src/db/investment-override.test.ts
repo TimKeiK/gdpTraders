@@ -8,7 +8,7 @@ import {
   type User,
   type Investment,
 } from './database.js';
-import { getPlanByName } from '../data/plans.js';
+import { getPlanByName, getPlanByAmount, computeExpectedReturn } from '../data/plans.js';
 
 let seq = 0;
 function makeUser(overrides: Partial<User> = {}): User {
@@ -98,4 +98,46 @@ test('admin override creates a new active plan when the client has none', () => 
   assert.equal(active?.assignedPlan, 'Diamond');
   assert.equal(active?.planOverride, true);
   assert.equal(active?.initialDeposit, 1500);
+});
+
+test('admin initial-deposit change re-derives the auto plan and updates the card values', () => {
+  const u = makeUser();
+  addUser(u);
+  const startDate = '2026-01-05T00:00:00.000Z'; // Monday
+  addInvestment({
+    id: 'INV-TEST-3',
+    userId: u.id,
+    initialDeposit: 600,
+    assignedPlan: 'Silver',
+    dailyRate: 5,
+    durationDays: 100,
+    startDate,
+    endDate: null,
+    totalExpectedReturn: computeExpectedReturn(600, 5, 100),
+    status: 'active',
+  });
+
+  // Admin raises the deposit to $3000 → the (non-overridden) plan follows the
+  // new amount (Gold) exactly like a real deposit would, and the expected
+  // return is recomputed from the new deposit + plan.
+  const plan = getPlanByAmount(3000)!;
+  updateInvestment({
+    id: 'INV-TEST-3',
+    userId: u.id,
+    initialDeposit: 3000,
+    assignedPlan: plan.name,
+    dailyRate: plan.dailyRate,
+    durationDays: plan.durationDays,
+    startDate,
+    endDate: null,
+    totalExpectedReturn: computeExpectedReturn(3000, plan.dailyRate, plan.durationDays),
+    status: 'active',
+  });
+
+  const active = getActiveInvestmentForUser(u.id);
+  assert.equal(active?.initialDeposit, 3000);
+  assert.equal(active?.assignedPlan, 'Gold');
+  assert.equal(active?.dailyRate, 10);
+  assert.equal(active?.durationDays, 200);
+  assert.equal(active?.totalExpectedReturn, computeExpectedReturn(3000, 10, 200));
 });

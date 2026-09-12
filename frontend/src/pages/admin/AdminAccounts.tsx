@@ -11,6 +11,7 @@ import {
   DollarSign,
   Lock,
   TrendingUp,
+  Banknote,
   X,
 } from 'lucide-react';
 import { adminApi, formatCurrency, type AdminUser } from '../../api/client';
@@ -76,6 +77,12 @@ export default function AdminAccounts() {
   const [planName, setPlanName] = useState('');
   const [planBusy, setPlanBusy] = useState(false);
   const [planErr, setPlanErr] = useState('');
+
+  // Initial-deposit override modal state (change the amount on the client's card)
+  const [initDepositFor, setInitDepositFor] = useState<AdminUser | null>(null);
+  const [initDepositAmount, setInitDepositAmount] = useState('');
+  const [initDepositBusy, setInitDepositBusy] = useState(false);
+  const [initDepositErr, setInitDepositErr] = useState('');
 
   const load = () => {
     adminApi
@@ -244,6 +251,33 @@ export default function AdminAccounts() {
     }
   };
 
+  const openInitDeposit = (u: AdminUser) => {
+    setInitDepositFor(u);
+    setInitDepositAmount(u.investment?.initialDeposit ? String(u.investment.initialDeposit) : '');
+    setInitDepositErr('');
+  };
+
+  const submitInitDeposit = async () => {
+    if (!initDepositFor) return;
+    const amount = parseFloat(initDepositAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setInitDepositErr('Enter a positive deposit amount.');
+      return;
+    }
+    setInitDepositBusy(true);
+    setInitDepositErr('');
+    try {
+      await adminApi.setInitialDeposit(initDepositFor.id, amount);
+      setMsg(`Initial deposit for ${initDepositFor.email} set to ${formatCurrency(amount)}`);
+      setInitDepositFor(null);
+      load();
+    } catch (e) {
+      setInitDepositErr(e instanceof Error ? e.message : 'Failed to update initial deposit');
+    } finally {
+      setInitDepositBusy(false);
+    }
+  };
+
   const isStaff = (role: string) => role === 'admin' || role === 'compliance';
 
   return (
@@ -393,6 +427,9 @@ export default function AdminAccounts() {
                           </button>
                           <button className="admin-btn" onClick={() => openPlan(u)} title="Change or set this client's investment plan (reflects on their dashboard)">
                             <TrendingUp size={14} /> Plan
+                          </button>
+                          <button className="admin-btn" onClick={() => openInitDeposit(u)} title="Change this client's initial deposit (reflects on their dashboard)">
+                            <Banknote size={14} /> Deposit
                           </button>
                         </>
                       )}
@@ -615,6 +652,57 @@ export default function AdminAccounts() {
                 style={{ display: 'flex', alignItems: 'center', gap: 6 }}
               >
                 <TrendingUp size={16} /> {planBusy ? 'Saving…' : 'Set Plan'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Set initial deposit modal (admin override) */}
+      {initDepositFor && (
+        <div className="admin-modal-backdrop" onClick={() => !initDepositBusy && setInitDepositFor(null)}>
+          <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <h3>Set Initial Deposit</h3>
+                <p className="admin-modal-sub">
+                  Change the initial deposit shown on <strong>{initDepositFor.name}</strong>'s ({initDepositFor.email})
+                  investment card (Overview &amp; Profile Settings).
+                  {initDepositFor.investment?.planName
+                    ? ` Current: ${formatCurrency(initDepositFor.investment.initialDeposit)} — ${initDepositFor.investment.planName} Plan.`
+                    : ' No active investment yet.'}
+                </p>
+              </div>
+              <button className="admin-btn ghost" onClick={() => !initDepositBusy && setInitDepositFor(null)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {initDepositErr && <div className="admin-msg err"><AlertCircle size={16} /> {initDepositErr}</div>}
+
+            <div className="form-group">
+              <label>Initial deposit (USD)</label>
+              <input
+                className="form-control"
+                type="number"
+                min="0"
+                step="any"
+                value={initDepositAmount}
+                onChange={(e) => setInitDepositAmount(e.target.value)}
+                placeholder="e.g. 5000"
+                disabled={initDepositBusy}
+              />
+            </div>
+
+            <div className="admin-modal-actions">
+              <button className="admin-btn" onClick={() => setInitDepositFor(null)} disabled={initDepositBusy}>Cancel</button>
+              <button
+                className="admin-btn primary"
+                onClick={submitInitDeposit}
+                disabled={initDepositBusy}
+                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                <Banknote size={16} /> {initDepositBusy ? 'Saving…' : 'Set Deposit'}
               </button>
             </div>
           </div>
