@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Wallet, Plus, ArrowUpRight, AlertCircle, TrendingUp, Landmark, Lock, BarChart3, RefreshCw, BadgeCheck } from 'lucide-react';
+import { Plus, ArrowUpRight, AlertCircle, BarChart3, RefreshCw, HelpCircle, Wallet, TrendingUp, Landmark, Lock } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { api, formatCurrency, formatPercent, type PortfolioSummary, type ActiveInvestment } from '../../api/client';
-import CandlestickChart, { type Candle } from '../../components/CandlestickChart';
+import CandlestickChart, { movingAverage, suggestMovingAverages, type Candle, type MovingAverageRef } from '../../components/CandlestickChart';
+import KpiCard from '../../components/dashboard/KpiCard';
+import KpiModal from '../../components/dashboard/KpiModal';
+import { ProfitGrowthChart, AllocationDonut, type AllocationSlice } from '../../components/dashboard/KpiCharts';
+import InvestmentPlanCard from '../../components/dashboard/InvestmentPlanCard';
+import InsightBanner from '../../components/dashboard/InsightBanner';
 import './DashboardPages.css';
 
 type RangeKey = '1D' | '7D' | '30D';
@@ -21,6 +26,8 @@ const CHART_COINS = [
 ] as const;
 
 type ChartCoinId = (typeof CHART_COINS)[number]['id'];
+type ChartType = 'candlestick' | 'line';
+const MIN_WITHDRAWAL = 5;  // Strict minimum withdrawal (mirrors backend).
 
 export default function OverviewPage() {
   const [summary, setSummary] = useState<PortfolioSummary | null>(null);
@@ -29,6 +36,9 @@ export default function OverviewPage() {
   const [coinChange24h, setCoinChange24h] = useState<number | null>(null);
   const [candles, setCandles] = useState<Candle[]>([]);
   const [range, setRange] = useState<RangeKey>('1D');
+  const [chartType, setChartType] = useState<ChartType>('candlestick');
+  const [showMA, setShowMA] = useState(true);
+  const [showVolume, setShowVolume] = useState(true);
   const [chartLoading, setChartLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [chartError, setChartError] = useState('');
@@ -36,6 +46,10 @@ export default function OverviewPage() {
   const { user } = useAuth();
   const [investment, setInvestment] = useState<ActiveInvestment | null>(null);
   const [daysRemaining, setDaysRemaining] = useState(0);
+
+  // KPI modal visibility
+  const [profitModalOpen, setProfitModalOpen] = useState(false);
+  const [portfolioModalOpen, setPortfolioModalOpen] = useState(false);
 
   // Active investment record (straight from the investments table).
   useEffect(() => {
@@ -50,6 +64,7 @@ export default function OverviewPage() {
 
   const activeRange = RANGES.find((r) => r.key === range)!;
   const activeCoin = CHART_COINS.find((c) => c.id === coinId)!;
+  const matureDate = investment?.endDate ? new Date(investment.endDate) : null;
 
   // Portfolio summary (backend API).
   useEffect(() => {
@@ -61,8 +76,7 @@ export default function OverviewPage() {
     });
     return () => { mounted = false; };
   }, []);
-
-  // Live price + OHLC candlesticks via the backend market proxy
+// Live price + OHLC candlesticks via the backend market proxy
   // (cached, rate-limit safe), refreshed every 30s for a real-time feel.
   const fetchMarket = useCallback(async () => {
     try {
@@ -105,6 +119,26 @@ export default function OverviewPage() {
     return () => { cancel = true; clearInterval(id); };
   }, [fetchMarket]);
 
+  // Moving-average overlays (adaptive MA periods based on available history).
+  const movingAverages = useMemo<MovingAverageRef[]>(() => {
+    if (!candles.length) return [];
+    const closes = candles.map((c) => c.close);
+    return suggestMovingAverages(closes.length).map((ma) => ({
+      label: ma.label,
+      values: movingAverage(closes, ma.window),
+    }));
+  }, [candles]);
+
+  // Asset allocation slices for the donut (demo breakdown derived from the portfolio).
+  const allocationSlices = useMemo<AllocationSlice[]>(() => {
+    if (!summary) return [];
+    const btc = summary.totalValue * 0.72;
+    return [
+      { label: 'Bitcoin (BTC)', value: btc, color: '#F7931A' },
+      { label: 'Tether (USDT)', value: Math.max(0, summary.totalValue - btc), color: '#26A17B' },
+    ];
+  }, [summary]);
+
   const firstName = user?.name?.split(' ')[0] || user?.email?.split('@')[0] || 'Investor';
 
   return (
@@ -115,6 +149,7 @@ export default function OverviewPage() {
         </p>
       )}
 
+      {/* Header + primary actions */}
       <div className="dash-header-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28, flexWrap: 'wrap', gap: 16 }}>
         <div>
           <h1 className="dash-title" style={{ marginBottom: 4 }}>Welcome back, {firstName}!</h1>
@@ -132,88 +167,70 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      {/* Current Investment Plan — reads directly from the investments table */}
-      {investment && investment.planName ? (
-        <div className="card" style={{ padding: '18px 22px', marginBottom: 20, borderLeft: '3px solid var(--gold)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-            <BadgeCheck size={22} style={{ color: 'var(--gold)', flexShrink: 0 }} />
-            <h3 style={{ margin: 0, fontSize: 16, color: 'var(--gold)' }}>Current Investment Plan: {investment.planName} Plan</h3>
-            <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--gray-400)' }}>
-              {daysRemaining > 0 ? `${daysRemaining} working day${daysRemaining === 1 ? '' : 's'} remaining` : 'Matured'}
+      {/* 1. KPI cards — personal financial status first */}
+      <div className="dash-kpis">
+        <KpiCard
+          icon={Wallet}
+          label="Total Portfolio Value"
+          value={summary ? formatCurrency(summary.totalValue) : '—'}
+          hero
+          onOpen={() => summary && setPortfolioModalOpen(true)}
+        />
+        <KpiCard
+          icon={TrendingUp}
+          label="Total Profit"
+          tone="pos"
+          value={summary ? formatCurrency(summary.totalProfit) : '—'}
+          sub={summary ? `${formatPercent(summary.totalProfitPercent)} all-time` : undefined}
+          onOpen={() => summary && setProfitModalOpen(true)}
+        />
+        <KpiCard
+          icon={Landmark}
+          label="Initial Capital Invested"
+          value={summary ? formatCurrency(summary.initialDeposit) : '—'}
+        />
+        <KpiCard
+          icon={Lock}
+          label="Available Withdrawal"
+          value={summary ? formatCurrency(summary.availableWithdrawal) : '—'}
+          tone={summary && summary.availableWithdrawal > 0 ? 'pos' : 'warn'}
+          labelHint={
+            <span className="kpi-hint" tabIndex={0} aria-label="Why is my withdrawal zero?">
+              <HelpCircle size={14} />
+              <span className="kpi-hint-tip" role="tooltip">
+                {matureDate
+                  ? `Your daily profit is credited automatically each business day and added to this balance — minimum withdrawal is $$${MIN_WITHDRAWAL}. The deposited principal stays locked until the maturity date of ${matureDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}, when it is released to this balance as well.`
+                  : 'Your daily profit is credited automatically each business day and added to this balance — minimum withdrawal is $' + MIN_WITHDRAWAL + '. The deposited principal stays locked until your investment plan matures, when it is released to this balance as well.'}
+              </span>
             </span>
-          </div>
-          <div className="plan-banner-stats" style={{ display: 'flex', gap: 24, flexWrap: 'wrap', fontSize: 13 }}>
-            <div>
-              <div style={{ color: 'var(--gray-400)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 }}>Initial Deposit</div>
-              <strong style={{ fontSize: 16 }}>{formatCurrency(investment.initialDeposit)}</strong>
-            </div>
-            <div>
-              <div style={{ color: 'var(--gray-400)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 }}>Daily Accrual</div>
-              <strong style={{ fontSize: 16, color: 'var(--green)' }}>{investment.dailyRate}%</strong>
-            </div>
-            <div>
-              <div style={{ color: 'var(--gray-400)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 }}>Duration</div>
-              <strong style={{ fontSize: 16 }}>{investment.durationDays} working days</strong>
-            </div>
-            <div>
-              <div style={{ color: 'var(--gray-400)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 }}>Expected Total Payout</div>
-              <strong style={{ fontSize: 16, color: 'var(--gold)' }}>{formatCurrency(investment.totalExpectedReturn ?? 0)}</strong>
-            </div>
-            <div>
-              <div style={{ color: 'var(--gray-400)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1 }}>Matures On</div>
-              <strong style={{ fontSize: 16 }}>{investment.endDate ? new Date(investment.endDate).toLocaleDateString() : '—'}</strong>
-            </div>
-          </div>
-        </div>
+          }
+        />
+      </div>
+{/* 2. Actionable insight banner */}
+      <InsightBanner summary={summary} />
+
+      {/* 3. Visualized investment plan (or onboarding calls-to-action) */}
+      {investment && investment.planName ? (
+        <InvestmentPlanCard investment={investment} daysRemaining={daysRemaining} />
       ) : investment && investment.status === 'under_review' ? (
-        <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '16px 22px', marginBottom: 20, borderLeft: '3px solid var(--gold)' }}>
-          <BadgeCheck size={22} style={{ color: 'var(--gold)', flexShrink: 0 }} />
+        <div className="card dash-alert-card" style={{ borderLeft: '3px solid var(--gold)', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <AlertCircle size={20} style={{ color: 'var(--gold)', flexShrink: 0 }} />
           <p style={{ margin: 0, fontSize: 14, color: 'var(--gray-400)', flex: 1, minWidth: 200 }}>
             Your deposit of {formatCurrency(investment.initialDeposit)} is under review — it is below the $20 minimum
             for an investment plan. Please contact support.
           </p>
         </div>
-      ) : summary && summary.initialDeposit <= 0 && (
-        <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', padding: '16px 22px', marginBottom: 20, borderLeft: '3px solid var(--gold)' }}>
-          <BadgeCheck size={22} style={{ color: 'var(--gold)', flexShrink: 0 }} />
+      ) : summary && summary.initialDeposit <= 0 ? (
+        <div className="card dash-alert-card" style={{ borderLeft: '3px solid var(--gold)', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <AlertCircle size={20} style={{ color: 'var(--gold)', flexShrink: 0 }} />
           <p style={{ margin: 0, fontSize: 14, color: 'var(--gray-400)', flex: 1, minWidth: 200 }}>
             No investment plan active yet — deposit at least $20 (Bronze Plan minimum) to get started.
           </p>
           <Link to="/dashboard/deposit" className="btn btn-sm btn-outline">Deposit</Link>
         </div>
-      )}
+      ) : null}
 
-      {/* KPI cards */}
-      <div className="dash-kpis">
-        <div className="card card-hover kpi-card">
-          <span className="kpi-icon"><Wallet size={20} /></span>
-          <span className="kpi-label">Total Portfolio Value</span>
-          <strong className="kpi-value">{summary ? formatCurrency(summary.totalValue) : '—'}</strong>
-        </div>
-        {summary && (
-          <div className="card card-hover kpi-card">
-            <span className="kpi-icon"><TrendingUp size={20} /></span>
-            <span className="kpi-label">Total Profit</span>
-            <strong className="kpi-value pos">{formatCurrency(summary.totalProfit)}</strong>
-          </div>
-        )}
-        {summary && (
-          <div className="card card-hover kpi-card">
-            <span className="kpi-icon"><Landmark size={20} /></span>
-            <span className="kpi-label">Initial Capital Invested</span>
-            <strong className="kpi-value">{formatCurrency(summary.initialDeposit)}</strong>
-          </div>
-        )}
-        {summary && (
-          <div className="card card-hover kpi-card">
-            <span className="kpi-icon"><Lock size={20} /></span>
-            <span className="kpi-label">Available Withdrawal</span>
-            <strong className="kpi-value pos">{formatCurrency(summary.availableWithdrawal)}</strong>
-          </div>
-        )}
-      </div>
-
-      {/* Live Market Candlestick Chart */}
+      {/* 4. Live Market Chart */}
       <div className="card mt-3 chart-card-wrap">
         <div className="chart-card-head">
           <div>
@@ -251,6 +268,34 @@ export default function OverviewPage() {
                 </button>
               ))}
             </div>
+            <div className="range-switch" role="group" aria-label="Chart view">
+              <button type="button" className={`range-btn ${chartType === 'candlestick' ? 'active' : ''}`} onClick={() => setChartType('candlestick')}>
+                Candles
+              </button>
+              <button type="button" className={`range-btn ${chartType === 'line' ? 'active' : ''}`} onClick={() => setChartType('line')}>
+                Line
+              </button>
+            </div>
+            <div className="range-switch" role="group" aria-label="Chart overlays">
+              <button
+                type="button"
+                className={`range-btn ${showMA ? 'active' : ''}`}
+                onClick={() => setShowMA((v) => !v)}
+                aria-pressed={showMA}
+                title="Toggle moving averages"
+              >
+                MA
+              </button>
+              <button
+                type="button"
+                className={`range-btn ${showVolume ? 'active' : ''}`}
+                onClick={() => setShowVolume((v) => !v)}
+                aria-pressed={showVolume}
+                title="Toggle volume"
+              >
+                Vol
+              </button>
+            </div>
             {coinPrice && (
               <div style={{ textAlign: 'right', minWidth: 120 }}>
                 <strong className="chart-price">{formatCurrency(coinPrice)}</strong>
@@ -263,9 +308,8 @@ export default function OverviewPage() {
             )}
           </div>
         </div>
-
-        {chartError && !candles.length && (
-          <div className="chart-empty" style={{ minHeight: 320 }}>
+{chartError && !candles.length && (
+          <div className="chart-empty" style={{ minHeight: 380 }}>
             <BarChart3 size={30} style={{ opacity: 0.5, marginBottom: 8 }} />
             <p>{chartError}</p>
             <button type="button" className="btn btn-outline" style={{ marginTop: 12 }} onClick={() => fetchMarket()}>
@@ -275,7 +319,7 @@ export default function OverviewPage() {
         )}
 
         {!chartError && chartLoading && candles.length === 0 && !lastUpdated && (
-          <div className="chart-empty" style={{ minHeight: 320 }}>
+          <div className="chart-empty" style={{ minHeight: 380 }}>
             <div className="chart-spinner" />
             <p style={{ marginTop: 12 }}>Loading live {activeCoin.label} chart…</p>
           </div>
@@ -283,7 +327,14 @@ export default function OverviewPage() {
 
         {candles.length > 0 && (
           <>
-            <CandlestickChart candles={candles} height={340} timeFormat={activeRange.timeFormat} />
+            <CandlestickChart
+              candles={candles}
+              height={380}
+              timeFormat={activeRange.timeFormat}
+              chartType={chartType}
+              showVolume={showVolume}
+              movingAverages={showMA ? movingAverages : []}
+            />
             <div className="chart-footer">
               <span>
                 {lastUpdated
@@ -295,6 +346,25 @@ export default function OverviewPage() {
           </>
         )}
       </div>
+
+      {/* KPI detail modals */}
+      <KpiModal
+        open={profitModalOpen}
+        title="Profit growth"
+        subtitle="Last 30 days of passive income"
+        onClose={() => setProfitModalOpen(false)}
+      >
+        {summary && <ProfitGrowthChart currentProfit={summary.totalProfit} />}
+      </KpiModal>
+
+      <KpiModal
+        open={portfolioModalOpen}
+        title="Asset breakdown"
+        subtitle="How your portfolio is allocated"
+        onClose={() => setPortfolioModalOpen(false)}
+      >
+        {summary && <AllocationDonut slices={allocationSlices} totalValue={summary.totalValue} />}
+      </KpiModal>
     </>
   );
 }

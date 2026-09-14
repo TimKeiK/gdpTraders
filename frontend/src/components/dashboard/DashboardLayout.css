@@ -125,27 +125,9 @@
   display: none;
 }
 
-@media (max-width: 900px) and (min-width: 769px) {
-  .dash-sidebar {
-    width: 76px;
-    padding: 24px 10px;
-  }
-  .dash-brand span:last-child {
-    display: none;
-  }
-  .dash-nav-link {
-    justify-content: center;
-    padding: 12px;
-  }
-  .dash-nav-link span {
-    display: none;
-  }
-  .dash-main {
-    padding: 24px 16px;
-  }
-}
-
-@media (max-width: 768px) {
+/* On tablet + mobile, hide the sidebar and switch to the fixed top header
+   + sticky bottom navigation to maximize screen real estate. */
+@media (max-width: 900px) {
   .dash-shell {
     flex-direction: column;
     min-height: 100vh;
@@ -308,5 +290,177 @@
   /* Native touch feedback scale */
   .dash-bottom-nav-link:active {
     transform: scale(0.92);
+  }
+}
+/* ============================================================
+   Notification Center (bell) — fixed top-right
+   ============================================================ */
+.notif-wrap {
+  position: fixed;
+  top: 20px;
+  right: 24px;
+  z-index: 1100;
+}
+
+.notif-bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--glass-border);
+  background: rgba(20, 20, 40, 0.7);
+  backdrop-filter: blur(14px);
+  color: var(--gray-400);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.notif-bell:hover {
+  color: var(--white);
+  border-color: rgba(245, 197, 24, 0.4);
+  transform: translateY(-1px);
+}
+
+.notif-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 2px #0a0a1a;
+}
+
+/* Dropdown */
+.notif-panel {
+  position: absolute;
+  top: 52px;
+  right: 0;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  background: rgba(20, 20, 40, 0.92);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  animation: notifIn 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes notifIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.notif-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.notif-head strong { font-size: 15px; }
+
+.notif-clear {
+  font-size: 12px;
+  color: var(--purple-light);
+  cursor: pointer;
+}
+
+.notif-clear:hover { text-decoration: underline; }
+
+.notif-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notif-item {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  transition: background 0.15s ease;
+}
+
+.notif-item:hover { background: rgba(255, 255, 255, 0.05); }
+.notif-item.read { opacity: 0.6; }
+
+.notif-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  flex-shrink: 0;
+}
+
+.notif-body { flex: 1; }
+
+.notif-title {
+  display: block;
+  font-size: 13.5px;
+  color: var(--white);
+}
+
+.notif-detail {
+  font-size: 12.5px;
+  color: var(--gray-400);
+  line-height: 1.45;
+  margin: 2px 0 4px;
+}
+
+.notif-time {
+  font-size: 11px;
+  color: var(--gray-500);
+}
+
+.notif-unread-dot {
+  position: absolute;
+  top: 16px;
+  right: 12px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gold);
+}
+
+/* Notification + chat positioning for small screens */
+@media (max-width: 768px) {
+  .notif-wrap {
+    top: 70px;
+    right: 14px;
+  }
+  .notif-panel {
+    top: 46px;
+    right: -14px;
+  }
+
+  /* ---- Chat widget + keyboard: keep the input above the virtual keyboard.
+     Constrain the injected Tidio iframe to the visual viewport. The height is
+     also nudged at runtime (TidioChat.tsx) so it tracks the keyboard. */
+  iframe[title*="Tidio"],
+  #tidio-chat iframe,
+  [data-tidio-chat] iframe {
+    max-height: calc(100dvh - 64px) !important;
   }
 }

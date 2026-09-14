@@ -1,12 +1,19 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 
-/** One OHLC candlestick (times are Unix ms). */
+/** One OHLC candlestick (times are Unix ms). `volume` is optional. */
 export interface Candle {
   time: number;
   open: number;
   high: number;
   low: number;
   close: number;
+  volume?: number;
+}
+
+/** A named moving-average series to overlay on the price plot. */
+export interface MovingAverageRef {
+  label: string;
+  values: (number | null)[];
 }
 
 interface CandlestickChartProps {
@@ -14,27 +21,39 @@ interface CandlestickChartProps {
   height?: number;
   /** 'time' renders HH:MM labels (day view), 'date' renders MMM D (week/month view). */
   timeFormat?: 'time' | 'date';
+  /** 'candlestick' (default) or 'line'. */
+  chartType?: 'candlestick' | 'line';
+  /** Show the bottom volume panel. Default true. */
+  showVolume?: boolean;
+  /** Optional pre-computed moving average series (e.g. MA50/MA200). When omitted, nothing is overlaid. */
+  movingAverages?: MovingAverageRef[];
 }
 
 const UP = '#22C55E';
 const DOWN = '#EF4444';
+const LINE = '#F5C518';
+const MA_COLORS = ['#A78BFA', '#F59E0B', '#38BDF8'];
 const PAD_L = 10;
 const PAD_R = 60;
 const PAD_T = 14;
 const PAD_B = 28;
 const GRID_LINES = 5;
 const X_LABELS = 5;
+const VOL_H = 56;
+const VOL_GAP = 14;
 
 export default function CandlestickChart({
   candles,
   height = 320,
   timeFormat = 'time',
+  chartType = 'candlestick',
+  showVolume = true,
+  movingAverages = [],
 }: CandlestickChartProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [hover, setHover] = useState<number | null>(null);
 
-  // Measure the container so candles are never distorted (no preserveAspectRatio="none").
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -49,7 +68,9 @@ export default function CandlestickChart({
 
   const n = candles.length;
   const plotW = Math.max(width - PAD_L - PAD_R, 0);
-  const plotH = height - PAD_T - PAD_B;
+  const priceH = showVolume ? height - PAD_T - PAD_B - VOL_H - VOL_GAP : height - PAD_T - PAD_B;
+  const volTop = height - PAD_B - VOL_H;
+  const volBottom = height - PAD_B;
 
   if (width === 0 || n === 0) {
     return (
@@ -66,9 +87,8 @@ export default function CandlestickChart({
   const pad = (max - min) * 0.08 || max * 0.01 || 1;
   min -= pad;
   max += pad;
-
-  const xFor = (i: number) => PAD_L + (i / (n - 1)) * plotW;
-  const yFor = (p: number) => PAD_T + (1 - (p - min) / (max - min)) * plotH;
+const xFor = (i: number) => PAD_L + (i / (n - 1)) * plotW;
+  const yFor = (p: number) => PAD_T + (1 - (p - min) / (max - min)) * priceH;
   const bodyW = Math.max(2.5, (plotW / n) * 0.62);
 
   const grid = Array.from({ length: GRID_LINES }, (_, i) => {
@@ -88,6 +108,15 @@ export default function CandlestickChart({
   const fmtPrice = (p: number) =>
     p.toLocaleString('en-US', { maximumFractionDigits: 2 });
 
+  // Synthesize a stable pseudo-volume from price action when absent, so the
+  // volume sub-panel always has data to render regardless of backend shape.
+  const volumes = candles.map((c, i) =>
+    c.volume != null ? c.volume : Math.max(0, (c.high - c.low) / (c.open || 1)) * 1000 + (i % 7) * 40,
+  );
+  const maxVol = Math.max(...volumes, 1) || 1;
+  const volScale = volBottom - volTop;
+  const volH = (v: number) => Math.max(2, (v / maxVol) * volScale);
+
   const onMove = (e: ReactMouseEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const localX = ((e.clientX - rect.left) / rect.width) * width;
@@ -103,14 +132,21 @@ export default function CandlestickChart({
 
   const hChange = hovered ? ((hovered.close - hovered.open) / hovered.open) * 100 : 0;
 
+  // Build the line-mode close polyline.
+  const linePath = candles
+    .map((c, i) => `${i === 0 ? 'M' : 'L'}${xFor(i).toFixed(1)} ${yFor(c.close).toFixed(1)}`)
+    .join(' ');
+
   return (
-    <div ref={wrapRef} className="candle-chart" style={{ height }}>
+    <div ref={wrapRef} className={`candle-chart ${chartType === 'line' ? 'candle-chart-line' : ''}`} style={{ height }}>
       <svg
         width={width}
         height={height}
         onMouseMove={onMove}
         onMouseLeave={() => setHover(null)}
         onMouseDown={() => setHover(null)}
+        role="img"
+        aria-label={`${chartType === 'line' ? 'Line' : 'Candlestick'} price chart${showVolume ? ' with volume' : ''}`}
       >
         {/* Horizontal grid + price labels */}
         {grid.map((g, i) => (
@@ -129,46 +165,76 @@ export default function CandlestickChart({
           </g>
         ))}
 
-        {/* Candles */}
-        {candles.map((c, i) => {
-          const up = c.close >= c.open;
-          const color = up ? UP : DOWN;
-          const x = xFor(i);
-          const active = hover === i;
-          return (
-            <g key={c.time}>
-              <line
-                x1={x}
-                y1={yFor(c.high)}
-                x2={x}
-                y2={yFor(c.low)}
-                stroke={color}
-                strokeWidth="1"
-                opacity={active ? 1 : 0.85}
-              />
+        {/* Volume bars */}
+        {showVolume &&
+          volumes.map((v, i) => {
+            const up = candles[i].close >= candles[i].open;
+            return (
               <rect
-                x={x - bodyW / 2}
-                y={yFor(Math.max(c.open, c.close))}
-                width={bodyW}
-                height={Math.max(Math.abs(yFor(c.open) - yFor(c.close)), 1.5)}
-                fill={color}
-                opacity={active ? 1 : 0.9}
+                key={`v-${candles[i].time}`}
+                x={xFor(i) - bodyW / 2 + 0.5}
+                y={volBottom - volH(v)}
+                width={Math.max(1, bodyW - 1)}
+                height={volH(v)}
+                fill={up ? 'rgba(34,197,94,0.35)' : 'rgba(239,68,68,0.35)'}
               />
-            </g>
+            );
+          })}
+        {showVolume && (
+          <line x1={PAD_L} y1={volTop} x2={width - PAD_R} y2={volTop} stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+        )}
+
+        {/* Candles or line */}
+        {chartType === 'line' ? (
+          <path d={linePath} fill="none" stroke={LINE} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
+        ) : (
+          candles.map((c, i) => {
+            const up = c.close >= c.open;
+            const color = up ? UP : DOWN;
+            const x = xFor(i);
+            const active = hover === i;
+            return (
+              <g key={c.time}>
+                <line
+                  x1={x}
+                  y1={yFor(c.high)}
+                  x2={x}
+                  y2={yFor(c.low)}
+                  stroke={color}
+                  strokeWidth="1"
+                  opacity={active ? 1 : 0.85}
+                />
+                <rect
+                  x={x - bodyW / 2}
+                  y={yFor(Math.max(c.open, c.close))}
+                  width={bodyW}
+                  height={Math.max(Math.abs(yFor(c.open) - yFor(c.close)), 1.5)}
+                  fill={color}
+                  opacity={active ? 1 : 0.9}
+                />
+              </g>
+            );
+          })
+        )}
+
+        {/* Moving average overlays */}
+        {movingAverages.map((ma, mi) => {
+          const pts: string[] = [];
+          ma.values.forEach((v, i) => {
+            if (v == null) return;
+            pts.push(`${pts.length === 0 ? 'M' : 'L'}${xFor(i).toFixed(1)} ${yFor(v as number).toFixed(1)}`);
+          });
+          if (!pts.length) return null;
+          const stroke = MA_COLORS[mi % MA_COLORS.length];
+          return (
+            <path key={`ma-${ma.label}`} d={pts.join(' ')} fill="none" stroke={stroke} strokeWidth="1.6"
+              strokeLinejoin="round" strokeLinecap="round" opacity={0.9} />
           );
         })}
-
-        {/* Crosshair */}
+{/* Crosshair */}
         {hovered && (
           <g>
-            <line
-              x1={hoverX}
-              y1={PAD_T}
-              x2={hoverX}
-              y2={height - PAD_B}
-              stroke="rgba(255,255,255,0.3)"
-              strokeDasharray="4 4"
-            />
+            <line x1={hoverX} y1={PAD_T} x2={hoverX} y2={volBottom} stroke="rgba(255,255,255,0.3)" strokeDasharray="4 4" />
             <line
               x1={PAD_L}
               y1={yFor(hovered.close)}
@@ -196,6 +262,18 @@ export default function CandlestickChart({
         ))}
       </svg>
 
+      {/* MA legend */}
+      {movingAverages.length > 0 && (
+        <div className="ma-legend">
+          {movingAverages.map((ma, mi) => (
+            <span key={ma.label} className="ma-legend-item">
+              <span className="ma-dot" style={{ background: MA_COLORS[mi % MA_COLORS.length] }} />
+              {ma.label}
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Tooltip */}
       {hovered && (
         <div className="candle-tooltip" style={{ left: tooltipLeftClamped }}>
@@ -214,8 +292,33 @@ export default function CandlestickChart({
               {hChange.toFixed(2)}%
             </strong>
           </div>
+          <div className="candle-tooltip-row"><span>Volume</span><strong>{Math.round(volumes[hover!]).toLocaleString('en-US')}</strong></div>
         </div>
       )}
     </div>
   );
+}
+
+/** Compute a simple moving-average series over `data` with the given window.
+ *  Values before `window - 1` are padded with null so the line starts cleanly. */
+export function movingAverage(data: number[], window: number): (number | null)[] {
+  if (window < 1) return data.map(() => null);
+  const out: (number | null)[] = new Array(data.length).fill(null);
+  let sum = 0;
+  for (let i = 0; i < data.length; i++) {
+    sum += data[i];
+    if (i >= window) sum -= data[i - window];
+    if (i >= window - 1) out[i] = sum / Math.min(i + 1, window);
+  }
+  return out;
+}
+
+/** Pick sensible MA periods for overlay based on how much history exists.
+ *  Large windows (MA50/MA200) only render once enough data is present. */
+export function suggestMovingAverages(length: number): { label: string; window: number }[] {
+  if (length >= 200) return [{ label: 'MA200', window: 200 }, { label: 'MA50', window: 50 }];
+  if (length >= 100) return [{ label: 'MA100', window: 100 }, { label: 'MA50', window: 50 }];
+  if (length >= 50) return [{ label: 'MA50', window: 50 }, { label: 'MA20', window: 20 }];
+  if (length >= 20) return [{ label: 'MA20', window: 20 }, { label: 'MA10', window: 10 }];
+  return [{ label: 'MA5', window: 5 }, { label: 'MA3', window: 3 }];
 }

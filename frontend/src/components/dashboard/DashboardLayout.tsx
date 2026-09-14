@@ -1,12 +1,12 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Receipt, MessagesSquare, LogOut, User, Plus, ArrowDownToLine, TrendingUp, Bitcoin, Gift } from 'lucide-react';
+import { LayoutDashboard, Receipt, MessagesSquare, LogOut, User, Plus, ArrowDownToLine, Bitcoin, Gift } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import TidioChat from '../TidioChat';
+import NotificationCenter from './NotificationCenter';
 import './DashboardLayout.css';
 
   const navItems: { to: string; label: string; icon: typeof LayoutDashboard; end?: boolean; sidebarOnly?: boolean }[] = [
   { to: '/dashboard', label: 'Overview', icon: LayoutDashboard, end: true },
-  { to: '/dashboard/pnl', label: 'Profit & Loss', icon: TrendingUp },
   { to: '/dashboard/deposit', label: 'Deposit', icon: Plus },
   { to: '/dashboard/withdraw', label: 'Withdraw', icon: ArrowDownToLine },
   { to: '/dashboard/transactions', label: 'Transactions', icon: Receipt },
@@ -106,13 +106,15 @@ export default function DashboardLayout() {
           >
             <item.icon size={20} className="dash-bottom-nav-icon" />
             <span className="dash-bottom-nav-label">
-              {item.label === 'Profit & Loss' ? 'P&L' : item.label}
+              {item.label}
             </span>
           </NavLink>
         ))}
       </nav>
 
       <TidioChat />
+
+      <NotificationCenter />
     </div>
   );
 }

@@ -67,5 +67,25 @@ export default function TidioChat() {
     };
   }, [user]);
 
+  // Keep the chat input visible above the mobile virtual keyboard:
+  // cap the injected iframe height to the visual viewport so when the keyboard
+  // opens and shrinks the viewport, Tidio's own panel (input pinned to bottom)
+  // reflows to stay visible. Falls back to 100dvh in CSS when no visualViewport.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const apply = () => {
+      const frame = document.querySelector<HTMLElement>('iframe[title*="Tidio"], #tidio-chat iframe, [data-tidio-chat] iframe');
+      if (frame) frame.style.maxHeight = `${Math.max(200, Math.round(vv.height) - 12)}px`;
+    };
+    vv.addEventListener('resize', apply);
+    vv.addEventListener('scroll', apply);
+    return () => {
+      vv.removeEventListener('resize', apply);
+      vv.removeEventListener('scroll', apply);
+    };
+  }, []);
+
   return null;
 }

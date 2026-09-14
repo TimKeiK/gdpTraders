@@ -59,6 +59,10 @@ router.get('/summary', async (req: AuthenticatedRequest, res: Response) => {
   const user = await findUserById(userId);
 
   const totalPnlPercent = costBasis !== 0 ? (totalPnl / costBasis) * 100 : 0;
+  // Yield of the passive income itself (gross profit ÷ deposits). Quoted next
+  // to totalProfit so dollar figures and percentages always describe the same
+  // number (totalPnlPercent is NET and can diverge when trades lose money).
+  const totalProfitPercent = costBasis !== 0 ? (totalProfit / costBasis) * 100 : 0;
   const todayPnlPercent = costBasis !== 0 ? (totalPnl24h / costBasis) * 100 : 0;
 
   res.json({
@@ -72,6 +76,7 @@ router.get('/summary', async (req: AuthenticatedRequest, res: Response) => {
     // Admin-set withdrawable amount (from the initial deposit + profit).
     availableWithdrawal: user?.availableWithdrawal ?? 0,
     totalPnlPercent,
+    totalProfitPercent,
     todayPnl: totalPnl24h,
     todayPnlPercent,
     lastUpdated: new Date().toISOString(),

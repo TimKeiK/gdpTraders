@@ -84,6 +84,16 @@ export const {
 
 export const dbMode = useInMemory ? 'in-memory' : 'postgresql';
 
+// Accrual is a PostgreSQL-only feature. Re-exported directly (not through the
+// in-memory store union) because the scheduler runs only in postgres mode.
+export {
+  getAllActiveInvestments,
+  getProcessedAccrualDates,
+  creditDailyAccrual,
+  getAccrualSummary,
+} from './pgStore.js';
+export type { CreditAccrualInput } from './pgStore.js';
+
 /**
  * Runs idempotent schema migrations (PostgreSQL mode only).
  * Safe to call at every startup; no-ops in in-memory mode.

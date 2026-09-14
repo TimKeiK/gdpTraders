@@ -18,25 +18,10 @@ export interface PortfolioSummary {
   initialDeposit: number;
   availableWithdrawal: number;
   totalPnlPercent: number;
+  /** Gross passive-income yield: totalProfit ÷ initialDeposit × 100. */
+  totalProfitPercent: number;
   todayPnl: number;
   todayPnlPercent: number;
-  lastUpdated: string;
-}
-
-/** Client-facing Profit & Loss statement (admin-managed credits/debits). */
-export interface PnlSummary {
-  totalProfit: number;
-  totalLoss: number;
-  netPnl: number;
-  netPnlPercent: number;
-  entries: {
-    id: string;
-    date: string;
-    kind: 'Profit' | 'Loss';
-    asset: string;
-    amount: number;
-    referenceId: string;
-  }[];
   lastUpdated: string;
 }
 
@@ -263,11 +248,6 @@ export const authApi = {
 export const api = {
   async getPortfolioSummary(): Promise<PortfolioSummary> {
     return request<PortfolioSummary>('/portfolio/summary');
-  },
-
-  /** Profit & Loss statement driven by admin-managed credits (profit) and debits (loss). */
-  async getPnl(): Promise<PnlSummary> {
-    return request<PnlSummary>('/portfolio/pnl');
   },
 
   async getStrategyAllocations(): Promise<StrategyAllocation[]> {

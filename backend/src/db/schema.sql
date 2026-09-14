@@ -94,6 +94,27 @@ CREATE TABLE IF NOT EXISTS investments (
     status VARCHAR(20) NOT NULL DEFAULT 'active'
 );
 
+-- Automatic daily accrual (simple interest on the initial deposit):
+--   current_value  = running total (initial_deposit + accrued profit)
+--   accrued_profit / accrued_days = informational + idempotency aids
+ALTER TABLE investments ADD COLUMN IF NOT EXISTS current_value NUMERIC(20, 2) DEFAULT 0;
+ALTER TABLE investments ADD COLUMN IF NOT EXISTS accrued_profit NUMERIC(20, 2) DEFAULT 0;
+ALTER TABLE investments ADD COLUMN IF NOT EXISTS accrued_days INTEGER DEFAULT 0;
+
+-- Idempotency ledger: one row per (investment, business day). The unique
+-- constraint guarantees the scheduler can never credit the same day twice,
+-- enabling safe catch-up backfills + daily runs.
+CREATE TABLE IF NOT EXISTS investment_accruals (
+    id BIGSERIAL PRIMARY KEY,
+    investment_id VARCHAR(50) NOT NULL REFERENCES investments(id),
+    business_date DATE NOT NULL,
+    amount NUMERIC(20, 8) NOT NULL,
+    balance_after NUMERIC(20, 2) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE (investment_id, business_date)
+);
+CREATE INDEX IF NOT EXISTS idx_accruals_investment ON investment_accruals(investment_id);
+
 -- Strategy allocations
 CREATE TABLE IF NOT EXISTS strategy_allocations (
     id BIGSERIAL PRIMARY KEY,

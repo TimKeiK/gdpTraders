@@ -23,6 +23,7 @@ import {
   getActiveInvestmentForUser,
   addInvestment,
   updateInvestment,
+  getAccrualSummary,
   type User,
   type UserRole,
   type KYCStatus,
@@ -41,6 +42,7 @@ import {
   MIN_DEPOSIT,
 } from '../data/plans.js';
 import { computeReferralCommission } from '../lib/referrals.js';
+import { runInvestmentAccrual } from '../services/accrual.js';
 
 const router = Router();
 
@@ -893,6 +895,34 @@ router.get(
   requireRole(...STAFF),
   async (req: AuthenticatedRequest, res: Response) => {
     res.json(await getDbStats());
+  }
+);
+
+/**
+ * GET /api/admin/accrual/status (admin/compliance)
+ * Summary of the automatic compound-accrual job.
+ */
+router.get(
+  '/accrual/status',
+  requireRole(...STAFF),
+  async (_req: AuthenticatedRequest, res: Response) => {
+    res.json(await getAccrualSummary());
+  }
+);
+
+/**
+ * POST /api/admin/accrual/run (admin only)
+ * Triggers the daily accrual immediately (idempotent — safe to re-run; it
+ * credits every unpaid business day from the initial deposit to now).
+ * Pass { "dryRun": true } to preview without writing.
+ */
+router.post(
+  '/accrual/run',
+  requireRole('admin'),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const dryRun = Boolean(req.body?.dryRun);
+    const result = await runInvestmentAccrual({ dryRun });
+    res.json(result);
   }
 );
 

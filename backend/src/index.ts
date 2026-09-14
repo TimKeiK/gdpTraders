@@ -17,6 +17,7 @@ import marketRoutes from './routes/market.js';
 import referralRoutes from './routes/referrals.js';
 import { config } from './config.js';
 import { rateLimit } from './middleware/rateLimit.js';
+import { scheduleInvestmentAccrual } from './services/accrual.js';
 
 const app = express();
 const PORT = config.port;
@@ -130,6 +131,16 @@ async function start() {
     console.log('[database] Schema migrations applied');
 
     await seedDatabase();
+
+    // Automatic daily accrual (simple interest on the initial deposit). Runs a
+    // catch-up on boot so every active investment is credited from its start
+    // date to today, then on a 12-hour cadence. PostgreSQL-only (idempotent +
+    // atomic per-day writes).
+    if (dbMode === 'postgresql') {
+      scheduleInvestmentAccrual();
+      console.log('[accrual] Scheduler started (simple daily accrual)');
+    }
+
     app.listen(PORT, () => {
       console.log(`┌─────────────────────────────────────────────┐`);
       console.log(`│   GDPTraders Backend v1.0.0                │`);

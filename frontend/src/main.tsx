@@ -26,7 +26,6 @@ import SignUpPage from './pages/dashboard/SignUpPage';
 import VerifyEmailPage from './pages/dashboard/VerifyEmailPage';
 import DashboardLayout from './components/dashboard/DashboardLayout';
 import OverviewPage from './pages/dashboard/OverviewPage';
-import PnlPage from './pages/dashboard/PnlPage';
 import ReferralsPage from './pages/dashboard/ReferralsPage';
 import DepositPage from './pages/dashboard/DepositPage';
 import WithdrawPage from './pages/dashboard/WithdrawPage';
@@ -68,7 +67,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route element={<AuthRoute />}>
             <Route path="dashboard" element={<DashboardLayout />}>
               <Route index element={<OverviewPage />} />
-              <Route path="pnl" element={<PnlPage />} />
               <Route path="deposit" element={<DepositPage />} />
               <Route path="withdraw" element={<WithdrawPage />} />
               <Route path="transactions" element={<TransactionsPage />} />

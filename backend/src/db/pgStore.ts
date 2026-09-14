@@ -143,6 +143,34 @@ export async function ensureSchema(): Promise<void> {
   END $$;`);
   // Historical rows default to 'active' so old users still see a plan.
   await pool.query(`UPDATE investments SET status = 'active' WHERE status IS NULL`);
+// ---- Automatic daily accrual (simple interest on the initial deposit) ----
+  // `current_value` is the running total (initial_deposit + accrued profit).
+  // `accrued_profit` / `accrued_days` are informational + idempotency aids.
+  await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS current_value NUMERIC(20, 2) DEFAULT 0`);
+  await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS accrued_profit NUMERIC(20, 2) DEFAULT 0`);
+  await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS accrued_days INTEGER DEFAULT 0`);
+  // Seed the compounding base for rows that have never accrued yet (safe to
+  // re-run; rows already credited keep their persisted running value).
+  await pool.query(
+    `UPDATE investments
+       SET current_value = initial_deposit
+     WHERE status = 'active' AND accrued_days = 0 AND (current_value IS NULL OR current_value = 0)`,
+  );
+  // Idempotency ledger: one row per (investment, business day). The unique
+  // constraint guarantees the scheduler can never credit the same day twice,
+  // which is what makes catch-up backfills + daily runs safe to re-run.
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS investment_accruals (
+       id BIGSERIAL PRIMARY KEY,
+       investment_id VARCHAR(50) NOT NULL REFERENCES investments(id),
+       business_date DATE NOT NULL,
+       amount NUMERIC(20, 8) NOT NULL,
+       balance_after NUMERIC(20, 2) NOT NULL,
+       created_at TIMESTAMP DEFAULT NOW(),
+       UNIQUE (investment_id, business_date)
+     )`,
+  );
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_accruals_investment ON investment_accruals(investment_id)`);
   // ---- Referral program: users columns + idempotent code backfill + earnings audit table ----
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code VARCHAR(8)`);
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_user_id VARCHAR(50)`);
@@ -236,6 +264,12 @@ export interface Investment {
   status: string;
   /** True when an admin manually overrode this row's plan (see wallet.ts fallback). */
   planOverride?: boolean;
+  /** Running total (initial_deposit + accrued profit) shown as current value. */
+  currentValue?: number;
+  /** Cumulative automatically-accrued profit for this investment. */
+  accruedProfit?: number;
+  /** Number of business days already credited for this investment. */
+  accruedDays?: number;
 }
 
 export interface DepositAddress {
@@ -558,6 +592,9 @@ function mapInvestment(r: any): Investment {
     totalExpectedReturn: r.total_expected_return != null ? Number(r.total_expected_return) : null,
     status: r.status ?? 'active',
     planOverride: !!r.plan_override,
+    currentValue: Number(r.current_value ?? 0),
+    accruedProfit: Number(r.accrued_profit ?? 0),
+    accruedDays: Number(r.accrued_days ?? 0),
   };
 }
 
@@ -946,6 +983,128 @@ export async function getDbStats() {
     transactions: Number(txns.rows[0].count),
     auditLogs: Number(audit.rows[0].count),
   };
+}
+
+// ---------- Automatic daily accrual (compound) ----------
+
+/** All `active` investments that still need daily accrual. */
+export async function getAllActiveInvestments(): Promise<Investment[]> {
+  const res = await pool.query(`SELECT * FROM investments WHERE status = 'active' ORDER BY start_date ASC`);
+  return res.rows.map(mapInvestment);
+}
+
+/** Business days (YYYY-MM-DD, UTC) already credited for an investment. */
+export async function getProcessedAccrualDates(investmentId: string): Promise<string[]> {
+  const res = await pool.query(
+    `SELECT to_char(business_date, 'YYYY-MM-DD') AS d FROM investment_accruals
+      WHERE investment_id = $1 ORDER BY business_date`,
+    [investmentId],
+  );
+  return res.rows.map((r: any) => r.d);
+}
+
+/** High-level admin status for the accrual job. */
+export async function getAccrualSummary() {
+  const [active, today] = await Promise.all([
+    pool.query(`SELECT COUNT(*) AS n FROM investments WHERE status = 'active'`),
+    pool.query(
+      `SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amt
+         FROM investment_accruals WHERE business_date = CURRENT_DATE`,
+    ),
+  ]);
+  return {
+    activeInvestments: Number(active.rows[0].n),
+    todayAccruals: Number(today.rows[0].n),
+    todayAmount: Number(today.rows[0].amt),
+  };
+}
+
+export interface CreditAccrualInput {
+  userId: string;
+  /** Business-day date used as the accrual DATE (YYYY-MM-DD). */
+  businessDate: string;
+  amount: number;
+  balanceAfter: number;
+  accruedDays: number;
+  matured: boolean;
+  /** Principal to release to available_withdrawal when the plan matures. */
+  principal: number;
+  txId: string;
+  txHash: string;
+  strategy: string;
+}
+
+/**
+ * Atomically credits ONE business day of accrual for an investment:
+ *   investment_accruals row (idempotent) + ledger profit entry + a Completed
+ *   transaction + the client's daily available_withdrawal + the running balance
+ *   update (+ maturity release + status flip).
+ *
+ * Runs inside a single PostgreSQL transaction. Returns false if that day was
+ * already credited (unique constraint) so re-runs never double-count.
+ */
+export async function creditDailyAccrual(investmentId: string, input: CreditAccrualInput): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Idempotency guard: do nothing if this (investment, business date) exists.
+    const ins = await client.query(
+      `INSERT INTO investment_accruals (investment_id, business_date, amount, balance_after)
+       VALUES ($1, $2::date, $3, $4)
+       ON CONFLICT (investment_id, business_date) DO NOTHING
+       RETURNING id`,
+      [investmentId, input.businessDate, input.amount, input.balanceAfter],
+    );
+    if ((ins.rowCount ?? 0) === 0) {
+      await client.query('ROLLBACK');
+      return false;
+    }
+
+    // 1) Append a hash-chained ledger PROFIT entry (drives P&L + portfolio value).
+    await appendLedgerEntryOnClient(client, input.userId, 'USDT', input.amount, 'profit', input.txId);
+
+    // 2) Record the Completed transaction so it appears in history.
+    await client.query(
+      `INSERT INTO transactions (id, user_id, date, type, asset, amount, strategy, status, tx_hash, requires_approval, approval1, approval2)
+       VALUES ($1, $2, $3::timestamp, $4, 'USDT', $5, $6, 'Completed', $7, false, false, false)`,
+      [input.txId, input.userId, input.businessDate, 'Daily Accrual', input.amount, input.strategy, input.txHash],
+    );
+
+    // 3) Advance the running balance (deposit + profit so far) + counters.
+    // With simple interest, `current_value` = deposit + cumulative profit.
+    await client.query(
+      `UPDATE investments
+          SET current_value = $1,
+              accrued_profit = accrued_profit + $2,
+              accrued_days = $3
+        WHERE id = $4`,
+      [input.balanceAfter, input.amount, input.accruedDays, investmentId],
+    );
+
+    // 4) Credit today's profit to the client's withdrawable balance (daily).
+    await client.query(
+      'UPDATE users SET available_withdrawal = available_withdrawal + $1 WHERE id = $2',
+      [input.amount, input.userId],
+    );
+
+    // 5) Maturity: flip status and release the principal as withdrawable.
+    if (input.matured) {
+      await client.query(`UPDATE investments SET status = 'matured' WHERE id = $1`, [investmentId]);
+      await client.query(
+        'UPDATE users SET available_withdrawal = available_withdrawal + $1 WHERE id = $2',
+        [input.principal, input.userId],
+      );
+    }
+
+    await client.query('COMMIT');
+    return true;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 export { pool };
