@@ -92,14 +92,18 @@ export {
   creditDailyAccrual,
   getAccrualSummary,
 } from './pgStore.js';
-export type { CreditAccrualInput } from './pgStore.js';
+export type { CreditAccrualInput, CreditAccrualResult } from './pgStore.js';
 
 /**
  * Runs idempotent schema migrations (PostgreSQL mode only).
  * Safe to call at every startup; no-ops in in-memory mode.
+ *
+ * @param cutoverYmd Accrual cutover date (ACCRUAL_START_DATE) — used only to
+ *   mark manual-era investments that matured before the cutover as 'matured'.
+ *   Never credits a balance and never rewrites pre-cutover accrual history.
  */
-export async function ensureSchema(): Promise<void> {
+export async function ensureSchema(cutoverYmd?: string): Promise<void> {
   if (!useInMemory) {
-    await pgStore.ensureSchema();
+    await pgStore.ensureSchema(cutoverYmd);
   }
 }

@@ -42,6 +42,7 @@ import {
   MIN_DEPOSIT,
 } from '../data/plans.js';
 import { runInvestmentAccrual, getSchedulerStatus } from '../services/accrual.js';
+import { config } from '../config.js';
 
 const router = Router();
 
@@ -942,27 +943,48 @@ router.get(
 
 /**
  * GET /api/admin/accrual/status (admin/compliance)
- * Summary of the automatic compound-accrual job.
+ * Summary of the automatic accrual job, including the cutover boundary.
+ *
+ * `preCutoverAccruals` must be 0: the automated engine may never own a business
+ * day before ACCRUAL_START_DATE (those were credited manually).
  */
 router.get(
   '/accrual/status',
   requireRole(...STAFF),
   async (_req: AuthenticatedRequest, res: Response) => {
-    res.json(await getAccrualSummary());
+    const cutoverDate = config.accrualStartDate;
+    const summary = await getAccrualSummary(cutoverDate);
+    res.json({
+      ...summary,
+      accrualEnabled: config.accrualEnabled,
+      accrualEnabledRaw: config.accrualEnabledRaw,
+      scheduler: getSchedulerStatus(cutoverDate),
+    });
   }
 );
 
 /**
  * POST /api/admin/accrual/run (admin only)
- * Triggers the daily accrual immediately (idempotent — safe to re-run; it
- * credits every unpaid business day from the initial deposit to now).
- * Pass { "dryRun": true } to preview without writing.
+ * Triggers the accrual immediately (idempotent — safe to re-run).
+ *
+ * Respects the cutover: it credits only business days on/after
+ * ACCRUAL_START_DATE. A real (non-dry) run is refused while
+ * ACCRUAL_ENABLED=false so a disabled deployment can never be credited by
+ * accident; `{ "dryRun": true }` is always allowed for verification.
  */
 router.post(
   '/accrual/run',
   requireRole('admin'),
   async (req: AuthenticatedRequest, res: Response) => {
     const dryRun = Boolean(req.body?.dryRun);
+    if (!dryRun && !config.accrualEnabled) {
+      res.status(409).json({
+        error: `Investment accrual scheduler disabled (ACCRUAL_ENABLED=${config.accrualEnabledRaw}).`,
+        hint: 'Send { "dryRun": true } to preview, or enable ACCRUAL_ENABLED=true deliberately.',
+        cutoverDate: config.accrualStartDate,
+      });
+      return;
+    }
     const result = await runInvestmentAccrual({ dryRun });
     res.json(result);
   }

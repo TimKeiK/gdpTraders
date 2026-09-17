@@ -18,6 +18,7 @@ import referralRoutes from './routes/referrals.js';
 import { config } from './config.js';
 import { rateLimit } from './middleware/rateLimit.js';
 import { scheduleInvestmentAccrual } from './services/accrual.js';
+import { shouldRunAccrualScheduler } from './data/accrual.js';
 
 const app = express();
 const PORT = config.port;
@@ -126,19 +127,27 @@ async function start() {
     await waitForDatabase();
 
     // Self-heal any schema drift (e.g. columns added after the DB volume
-    // was first created) before the app or seeder touches the tables.
-    await ensureSchema();
+    // was first created) before the app or seeder touches the tables. The
+    // accrual cutover date is passed in so the migration can normalize
+    // investments that matured during the manual era (status only — never
+    // credits a balance).
+    await ensureSchema(config.accrualStartDate);
     console.log('[database] Schema migrations applied');
 
     await seedDatabase();
 
-    // Automatic daily accrual (simple interest on the initial deposit). Runs a
-    // catch-up on boot so every active investment is credited from its start
-    // date to today, then on a 12-hour cadence. PostgreSQL-only (idempotent +
-    // atomic per-day writes).
-    if (dbMode === 'postgresql') {
+    // Automatic daily accrual (simple interest on the initial deposit).
+    //
+    // GATED: the scheduler only starts when PostgreSQL is active AND
+    // ACCRUAL_ENABLED === 'true'. Deploy with the flag off, verify on staging,
+    // then enable it for the cutover. When enabled it runs one catch-up from
+    // ACCRUAL_START_DATE (2026-09-18 by default) to today — every earlier
+    // business day was credited manually and is never touched.
+    if (shouldRunAccrualScheduler({ dbMode, accrualEnabled: config.accrualEnabled })) {
       scheduleInvestmentAccrual();
-      console.log('[accrual] Scheduler started (simple daily accrual)');
+      console.log(`[accrual] Scheduler started (simple daily accrual, cutover ${config.accrualStartDate})`);
+    } else if (dbMode === 'postgresql') {
+      console.log(`Investment accrual scheduler disabled (ACCRUAL_ENABLED=${config.accrualEnabledRaw})`);
     }
 
     app.listen(PORT, () => {

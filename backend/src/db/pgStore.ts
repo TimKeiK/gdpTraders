@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import pg from 'pg';
 import { computeReferralCommission, generateCode } from '../lib/referrals.js';
+import { storedDateYmd } from '../data/accrual.js';
 
 const { Pool } = pg;
 
@@ -18,14 +19,71 @@ const pool = new Pool({
 });
 
 /**
+ * Cutover normalization (idempotent): mark investments that matured BEFORE the
+ * automated accrual cutover as `matured`.
+ *
+ * Those plans belong to the manual era — an operator already handled their
+ * principal outside the automated engine. This step changes ONLY `status`, so
+ * `available_withdrawal`, `current_value`, `accrued_profit`, `accrued_days`,
+ * ledger entries and transactions are all left exactly as they are.
+ *
+ * It logs every affected investment (and reports the count) so the operator can
+ * confirm the assumption "the principal was already handled manually" holds. If
+ * it does not, the correct action is to reconcile by hand — never to credit.
+ */
+async function normalizeMaturedBeforeCutover(cutoverYmd: string): Promise<{ matured: number }> {
+  const { rows } = await pool.query(
+    `SELECT id, user_id, end_date
+       FROM investments
+      WHERE status = 'active' AND end_date IS NOT NULL AND end_date < $1::date
+      ORDER BY end_date ASC`,
+    [cutoverYmd],
+  );
+
+  if (rows.length === 0) {
+    console.log(
+      `[accrual] Cutover normalization: no investments matured before ${cutoverYmd} — nothing to do.`,
+    );
+    return { matured: 0 };
+  }
+
+  console.log(
+    `[accrual] Cutover normalization: ${rows.length} investment(s) matured before ${cutoverYmd}. ` +
+      `Setting status='matured' only (principal/balances/accrual history left untouched — ` +
+      `assumed handled manually during the manual accrual era):`,
+  );
+  for (const row of rows) {
+    const endYmd = storedDateYmd(row.end_date as string | Date);
+    console.log(
+      `[accrual]   - investment ${row.id} (user ${row.user_id}) matured ${endYmd} — ` +
+        `NO principal credit applied; verify manually if this plan's principal was not already paid.`,
+    );
+  }
+
+  // Idempotent: only rows still 'active' are flipped, so re-runs are no-ops.
+  const updated = await pool.query(
+    `UPDATE investments
+        SET status = 'matured'
+      WHERE status = 'active' AND end_date IS NOT NULL AND end_date < $1::date`,
+    [cutoverYmd],
+  );
+  console.log(`[accrual] Cutover normalization complete: ${updated.rowCount} investment(s) set to 'matured'.`);
+  return { matured: updated.rowCount ?? 0 };
+}
+
+/**
  * Idempotent schema migrations that run at every startup.
  *
  * schema.sql is only executed by Postgres when its data volume is FIRST
  * initialized. For any database created before newer columns were added
  * (e.g. transactions.destination_address), these ALTERs self-heal the
  * drift so inserts/queries never fail with "column does not exist".
+ *
+ * @param cutoverYmd The accrual cutover date (ACCRUAL_START_DATE). Used ONLY to
+ *   normalize investments that matured during the manual era; it never credits
+ *   a balance and never touches pre-cutover accrual history.
  */
-export async function ensureSchema(): Promise<void> {
+export async function ensureSchema(cutoverYmd?: string): Promise<void> {
   await pool.query(
     `ALTER TABLE transactions ADD COLUMN IF NOT EXISTS destination_address VARCHAR(255)`
   );
@@ -149,8 +207,16 @@ export async function ensureSchema(): Promise<void> {
   await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS current_value NUMERIC(20, 2) DEFAULT 0`);
   await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS accrued_profit NUMERIC(20, 2) DEFAULT 0`);
   await pool.query(`ALTER TABLE investments ADD COLUMN IF NOT EXISTS accrued_days INTEGER DEFAULT 0`);
+  // Cutover normalization: investments that matured BEFORE the automated cutover
+  // belong to the manual era. Flip their status so the scheduler never revisits
+  // them, and never pay their principal again. Status is the ONLY column changed.
+  // Must run BEFORE the current_value seed below so matured rows stay untouched.
+  if (cutoverYmd) {
+    await normalizeMaturedBeforeCutover(cutoverYmd);
+  }
   // Seed the compounding base for rows that have never accrued yet (safe to
-  // re-run; rows already credited keep their persisted running value).
+  // re-run; rows already credited keep their persisted running value). Only
+  // touches NULL/zero values, so a non-zero current_value is never overwritten.
   await pool.query(
     `UPDATE investments
        SET current_value = initial_deposit
@@ -1002,7 +1068,7 @@ export async function getDbStats() {
   };
 }
 
-// ---------- Automatic daily accrual (compound) ----------
+// ---------- Automatic daily accrual (simple interest, cutover-aware) ----------
 
 /** All `active` investments that still need daily accrual. */
 export async function getAllActiveInvestments(): Promise<Investment[]> {
@@ -1020,9 +1086,9 @@ export async function getProcessedAccrualDates(investmentId: string): Promise<st
   return res.rows.map((r: any) => r.d);
 }
 
-/** High-level admin status for the accrual job. */
-export async function getAccrualSummary() {
-  const [active, today, allTime] = await Promise.all([
+/** High-level admin status for the accrual job (cutover-aware). */
+export async function getAccrualSummary(cutoverYmd: string) {
+  const [active, today, allTime, beforeCutover, maturedBeforeCutoverCount] = await Promise.all([
     pool.query(`SELECT COUNT(*) AS n FROM investments WHERE status = 'active'`),
     pool.query(
       `SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amt
@@ -1032,6 +1098,19 @@ export async function getAccrualSummary() {
       `SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amt
          FROM investment_accruals`,
     ),
+    // Must always be 0: the automatic engine may never own a pre-cutover day.
+    // A non-zero value here means manual-era history exists in the ledger and
+    // must be investigated before enabling the scheduler.
+    pool.query(
+      `SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amt
+         FROM investment_accruals WHERE business_date < $1::date`,
+      [cutoverYmd],
+    ),
+    pool.query(
+      `SELECT COUNT(*) AS n FROM investments
+        WHERE status = 'matured' AND end_date IS NOT NULL AND end_date < $1::date`,
+      [cutoverYmd],
+    ),
   ]);
   return {
     activeInvestments: Number(active.rows[0].n),
@@ -1039,6 +1118,13 @@ export async function getAccrualSummary() {
     todayAmount: Number(today.rows[0].amt),
     totalAccruals: Number(allTime.rows[0].n),
     totalAmount: Number(allTime.rows[0].amt),
+    /** First date automated accruals may pay (ACCRUAL_START_DATE). */
+    cutoverDate: cutoverYmd,
+    /** Accrual rows dated before the cutover — expected to be 0. */
+    preCutoverAccruals: Number(beforeCutover.rows[0].n),
+    preCutoverAmount: Number(beforeCutover.rows[0].amt),
+    /** Investments matured before the cutover (manual era), now status='matured'. */
+    maturedBeforeCutover: Number(maturedBeforeCutoverCount.rows[0].n),
   };
 }
 
@@ -1049,12 +1135,31 @@ export interface CreditAccrualInput {
   amount: number;
   balanceAfter: number;
   accruedDays: number;
+  /**
+   * True when the caller believes `businessDate` is the investment's final day
+   * (`end_date`). The principal is still only released when the DB confirms it
+   * (date === end_date AND status === 'active'), so a stale flag can never
+   * cause a second payout.
+   */
   matured: boolean;
   /** Principal to release to available_withdrawal when the plan matures. */
   principal: number;
+  /**
+   * Accrual cutover date (ACCRUAL_START_DATE). Hard DB-level floor: an accrual
+   * row can never be inserted for a business date before it, so pre-cutover
+   * (manual-era) history can never be created, recalculated or modified.
+   */
+  cutoverYmd: string;
   txId: string;
   txHash: string;
   strategy: string;
+}
+
+export interface CreditAccrualResult {
+  /** False when the day was out of scope or already credited (no writes at all). */
+  credited: boolean;
+  /** True only for the single call that actually released the principal. */
+  principalReleased: boolean;
 }
 
 /**
@@ -1063,25 +1168,46 @@ export interface CreditAccrualInput {
  *   transaction + the client's daily available_withdrawal + the running balance
  *   update (+ maturity release + status flip).
  *
- * Runs inside a single PostgreSQL transaction. Returns false if that day was
- * already credited (unique constraint) so re-runs never double-count.
+ * Runs inside a single PostgreSQL transaction and is refused (with ZERO writes)
+ * when any of these hard guards fails:
+ *   - the business date is before the accrual cutover (manual-era history),
+ *   - the business date is after `end_date` (past maturity),
+ *   - the investment is no longer `active` (already matured — so the principal
+ *     can never be released twice),
+ *   - that (investment, business date) was already credited (unique constraint).
+ *
+ * The principal is released at most ONCE: status is flipped to 'matured' in the
+ * SAME transaction as the principal release, guarded by `status = 'active'` AND
+ * `business_date = end_date`. A retry, a re-run or a concurrent process can
+ * therefore never pay it again.
  */
-export async function creditDailyAccrual(investmentId: string, input: CreditAccrualInput): Promise<boolean> {
+export async function creditDailyAccrual(
+  investmentId: string,
+  input: CreditAccrualInput,
+): Promise<CreditAccrualResult> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    // Idempotency guard: do nothing if this (investment, business date) exists.
+    // Scope + idempotency guard in ONE statement: the row is only inserted when
+    // the investment exists, is still active, the date is on/after the cutover
+    // and not past maturity, and that day has not been credited yet.
     const ins = await client.query(
       `INSERT INTO investment_accruals (investment_id, business_date, amount, balance_after)
-       VALUES ($1, $2::date, $3, $4)
+       SELECT i.id, $2::date, $3, $4
+         FROM investments i
+        WHERE i.id = $1
+          AND i.status = 'active'
+          AND i.end_date IS NOT NULL
+          AND $2::date >= $5::date
+          AND $2::date <= i.end_date::date
        ON CONFLICT (investment_id, business_date) DO NOTHING
        RETURNING id`,
-      [investmentId, input.businessDate, input.amount, input.balanceAfter],
+      [investmentId, input.businessDate, input.amount, input.balanceAfter, input.cutoverYmd],
     );
     if ((ins.rowCount ?? 0) === 0) {
       await client.query('ROLLBACK');
-      return false;
+      return { credited: false, principalReleased: false };
     }
 
     // 1) Append a hash-chained ledger PROFIT entry (drives P&L + portfolio value).
@@ -1111,17 +1237,34 @@ export async function creditDailyAccrual(investmentId: string, input: CreditAccr
       [input.amount, input.userId],
     );
 
-    // 5) Maturity: flip status and release the principal as withdrawable.
+    // 5) Maturity: release the principal AT MOST ONCE, only on the final day,
+    //    and only while the investment is still active. The status flip and the
+    //    principal release share this transaction, so the guard and the payout
+    //    can never diverge: whichever process wins the UPDATE is the only one
+    //    that pays, and every later attempt finds status <> 'active'.
+    let principalReleased = false;
     if (input.matured) {
-      await client.query(`UPDATE investments SET status = 'matured' WHERE id = $1`, [investmentId]);
-      await client.query(
-        'UPDATE users SET available_withdrawal = available_withdrawal + $1 WHERE id = $2',
-        [input.principal, input.userId],
+      const mat = await client.query(
+        `UPDATE investments
+            SET status = 'matured'
+          WHERE id = $1
+            AND status = 'active'
+            AND end_date IS NOT NULL
+            AND $2::date = end_date::date
+          RETURNING id`,
+        [investmentId, input.businessDate],
       );
+      if ((mat.rowCount ?? 0) > 0) {
+        principalReleased = true;
+        await client.query(
+          'UPDATE users SET available_withdrawal = available_withdrawal + $1 WHERE id = $2',
+          [input.principal, input.userId],
+        );
+      }
     }
 
     await client.query('COMMIT');
-    return true;
+    return { credited: true, principalReleased };
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     throw err;
