@@ -697,3 +697,386 @@
   background: rgba(139, 92, 246, 0.2);
   box-shadow: 0 0 24px rgba(139, 92, 246, 0.28);
 }
+
+/* ============ MODERN MOTION & 3D HERO ADDITIONS ============ */
+
+/* Hero v2 Layout */
+.hero.hero-v2 {
+  min-height: 88vh;
+  display: flex;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+  padding: 130px 0 110px;
+}
+
+.hero-v2 .hero-inner {
+  position: relative;
+  z-index: 3;
+  max-width: 680px;
+}
+
+.hero-line {
+  display: block;
+}
+
+/* 3D Gold Bar Canvas Container */
+.hero-3d {
+  position: absolute;
+  right: 2%;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 580px;
+  height: 580px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+@media (max-width: 1100px) {
+  .hero-3d {
+    width: 440px;
+    height: 440px;
+    right: -20px;
+    opacity: 0.65;
+  }
+}
+
+@media (max-width: 860px) {
+  .hero-3d {
+    width: 320px;
+    height: 320px;
+    right: -40px;
+    top: 25%;
+    opacity: 0.35;
+  }
+}
+
+@media (max-width: 520px) {
+  .hero-3d {
+    display: none;
+  }
+}
+
+/* Background Candlesticks */
+.hero-candles {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 680px;
+  max-width: 65%;
+  height: auto;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.72;
+  filter: drop-shadow(0 0 24px rgba(245, 197, 24, 0.12));
+}
+
+@media (max-width: 768px) {
+  .hero-candles {
+    max-width: 95%;
+    opacity: 0.45;
+  }
+}
+
+/* Self-drawing Gold Upward Arrow */
+.hero-arrow {
+  position: absolute;
+  right: 14%;
+  bottom: 70px;
+  width: 220px;
+  height: auto;
+  z-index: 2;
+  pointer-events: none;
+  filter: drop-shadow(0 0 24px rgba(245, 197, 24, 0.5));
+}
+
+@media (max-width: 960px) {
+  .hero-arrow {
+    right: 5%;
+    bottom: 40px;
+    width: 170px;
+  }
+}
+
+@media (max-width: 640px) {
+  .hero-arrow {
+    display: none;
+  }
+}
+
+/* CTA Button Sheen Sweep */
+.btn-sheen {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.btn-sheen::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -150%;
+  width: 100%;
+  height: 200%;
+  background: linear-gradient(
+    60deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.32) 50%,
+    transparent 80%
+  );
+  transform: rotate(25deg);
+  transition: transform 0.65s ease, left 0.65s ease;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.btn-sheen:hover::after {
+  left: 150%;
+}
+
+/* ============ DEPOSIT PLAN HOVER & FEATURED GLOW ============ */
+
+.deposit-plan-card {
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.deposit-plan-card::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, transparent 35%, rgba(245, 197, 24, 0.65) 50%, transparent 65%);
+  background-size: 250% 250%;
+  background-position: 0% 0%;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.35s ease, background-position 0.6s ease;
+}
+
+.deposit-plan-card:hover::after {
+  opacity: 1;
+  background-position: 100% 100%;
+}
+
+.deposit-plan-featured {
+  position: relative;
+  background: linear-gradient(180deg, rgba(26, 26, 46, 0.95), rgba(16, 16, 32, 0.95));
+  border-color: rgba(245, 197, 24, 0.5) !important;
+  animation: featuredGlow 3.5s ease-in-out infinite alternate;
+}
+
+@keyframes featuredGlow {
+  0% {
+    box-shadow: 0 0 18px rgba(245, 197, 24, 0.12), 0 8px 24px rgba(0, 0, 0, 0.4);
+    border-color: rgba(245, 197, 24, 0.35);
+  }
+  100% {
+    box-shadow: 0 0 38px rgba(245, 197, 24, 0.3), 0 14px 36px rgba(0, 0, 0, 0.55);
+    border-color: rgba(245, 197, 24, 0.85);
+  }
+}
+
+/* ============ FEE SPLIT RING ============ */
+
+.fee-ring-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px 0 6px;
+  border-top: 1px solid var(--glass-border);
+  margin-top: 16px;
+}
+
+.fee-ring {
+  width: 140px;
+  height: 140px;
+  filter: drop-shadow(0 4px 18px rgba(245, 197, 24, 0.18));
+}
+
+/* ============ DASHBOARD PINNED SECTION & MOCKUP ============ */
+
+.dash-features {
+  position: relative;
+  overflow: hidden;
+  padding: 100px 0;
+}
+
+.dash-mockup {
+  max-width: 740px;
+  margin: 0 auto 42px;
+  border-radius: 16px;
+  background: rgba(14, 14, 28, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6), 0 0 36px rgba(139, 92, 246, 0.15);
+  overflow: hidden;
+  transform-origin: center top;
+}
+
+.dash-mockup-head {
+  display: flex;
+  gap: 7px;
+  padding: 12px 18px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.dash-mockup-head span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.dash-mockup-head span:nth-child(1) { background: #EF4444; opacity: 0.75; }
+.dash-mockup-head span:nth-child(2) { background: #F59E0B; opacity: 0.75; }
+.dash-mockup-head span:nth-child(3) { background: #22C55E; opacity: 0.75; }
+
+.dash-mockup-body {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  padding: 22px 24px;
+}
+
+.dash-mockup-kpi {
+  height: 52px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  position: relative;
+  overflow: hidden;
+}
+
+.dash-mockup-kpi::after {
+  content: '';
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  width: 45%;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.dash-mockup-chart {
+  grid-column: 1 / -1;
+  height: 76px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  padding: 10px 18px;
+}
+
+.dash-mockup-chart span {
+  flex: 1;
+  border-radius: 4px 4px 0 0;
+  background: linear-gradient(180deg, var(--gold), rgba(245, 197, 24, 0.22));
+  box-shadow: 0 0 10px rgba(245, 197, 24, 0.2);
+}
+
+/* Simulated Live Ticker */
+.live-ticker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.24);
+  font-size: 13px;
+  font-family: var(--font-mono);
+  color: var(--white);
+  box-shadow: 0 0 14px rgba(34, 197, 94, 0.1);
+}
+
+.live-ticker-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #22C55E;
+  font-weight: 700;
+}
+
+.live-ticker-delta.pos {
+  color: #22C55E;
+}
+
+.live-ticker-delta.neg {
+  color: #EF4444;
+}
+
+/* ============ FAQ ACCORDION POLISH ============ */
+
+.faq-item {
+  transition: border-color 0.25s ease, background-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.faq-item:hover {
+  border-color: rgba(245, 197, 24, 0.35) !important;
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+/* ============ FINAL CTA LIQUID GOLD BACKGROUND ============ */
+
+.cta-section {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  padding: 110px 0;
+}
+
+.cta-liquid {
+  position: absolute;
+  inset: -60%;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse 60% 50% at 28% 38%, rgba(245, 197, 24, 0.22), transparent 55%),
+    radial-gradient(ellipse 55% 45% at 72% 62%, rgba(139, 92, 246, 0.24), transparent 55%),
+    radial-gradient(ellipse 45% 40% at 50% 50%, rgba(212, 160, 23, 0.14), transparent 50%),
+    var(--bg-elevated);
+  filter: blur(52px);
+  animation: liquidFlow 16s ease-in-out infinite alternate;
+  will-change: transform;
+  opacity: 0.9;
+}
+
+@keyframes liquidFlow {
+  0% {
+    transform: translate(0, 0) scale(1) rotate(0deg);
+  }
+  50% {
+    transform: translate(-3%, 3%) scale(1.06) rotate(3deg);
+  }
+  100% {
+    transform: translate(3%, -3%) scale(0.97) rotate(-2deg);
+  }
+}
+
+.cta-liquid-static {
+  animation: none !important;
+}
+
+/* Reduced Motion Safety */
+@media (prefers-reduced-motion: reduce) {
+  .hero-candles line,
+  .hero-candles rect,
+  .hero-arrow path,
+  .btn-sheen::after,
+  .deposit-plan-featured,
+  .cta-liquid {
+    animation: none !important;
+    transition: none !important;
+  }
+}

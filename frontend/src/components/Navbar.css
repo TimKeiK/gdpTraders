@@ -12,6 +12,7 @@
   align-items: center;
   justify-content: space-between;
   height: 68px;
+  transition: height 0.35s ease;
 }
 
 .navbar-brand {
@@ -104,5 +105,42 @@
     margin-left: 0;
     width: 100%;
     justify-content: center;
+  }
+}
+/* ---------- Motion additions: scrolled state + animated underline ---------- */
+.navbar {
+  transition: background 0.35s ease, backdrop-filter 0.35s ease, padding 0.35s ease, box-shadow 0.35s ease;
+}
+
+.navbar-scrolled {
+  background: rgba(5, 5, 16, 0.72);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.45);
+}
+
+.navbar-scrolled .navbar-inner {
+  height: 56px;
+}
+
+.navbar-link {
+  position: relative;
+}
+
+.navbar-underline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -6px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--gold), var(--purple-light));
+  box-shadow: 0 0 8px rgba(245, 197, 24, 0.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .navbar,
+  .navbar-inner {
+    transition: none;
   }
 }

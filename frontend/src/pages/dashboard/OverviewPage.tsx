@@ -51,32 +51,35 @@ export default function OverviewPage() {
   const [profitModalOpen, setProfitModalOpen] = useState(false);
   const [portfolioModalOpen, setPortfolioModalOpen] = useState(false);
 
-  // Active investment record (straight from the investments table).
-  useEffect(() => {
-    let mounted = true;
-    api.getInvestment().then((res) => {
-      if (!mounted) return;
-      setInvestment(res.investment);
-      setDaysRemaining(res.daysRemaining);
-    }).catch(() => {});
-    return () => { mounted = false; };
+  // Active investment record & portfolio summary loader.
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadData = useCallback(async () => {
+    try {
+      const [sum, inv] = await Promise.all([
+        api.getPortfolioSummary(),
+        api.getInvestment(),
+      ]);
+      setSummary(sum);
+      setInvestment(inv.investment);
+      setDaysRemaining(inv.daysRemaining);
+      setLoadError('');
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : 'Failed to load portfolio data.');
+    }
   }, []);
+
+  useEffect(() => {
+    loadData();
+    const interval = setInterval(loadData, 45000); // Poll every 45s so daily accruals reflect automatically
+    return () => clearInterval(interval);
+  }, [loadData]);
 
   const activeRange = RANGES.find((r) => r.key === range)!;
   const activeCoin = CHART_COINS.find((c) => c.id === coinId)!;
   const matureDate = investment?.endDate ? new Date(investment.endDate) : null;
 
-  // Portfolio summary (backend API).
-  useEffect(() => {
-    let mounted = true;
-    api.getPortfolioSummary().then((s) => {
-      if (mounted) setSummary(s);
-    }).catch((err) => {
-      if (mounted) setLoadError(err instanceof Error ? err.message : 'Failed to load portfolio data.');
-    });
-    return () => { mounted = false; };
-  }, []);
-// Live price + OHLC candlesticks via the backend market proxy
+  // Live price + OHLC candlesticks via the backend market proxy
   // (cached, rate-limit safe), refreshed every 30s for a real-time feel.
   const fetchMarket = useCallback(async () => {
     try {
@@ -141,6 +144,12 @@ export default function OverviewPage() {
 
   const firstName = user?.name?.split(' ')[0] || user?.email?.split('@')[0] || 'Investor';
 
+  const handleManualRefresh = async () => {
+    setRefreshing(true);
+    await Promise.all([loadData(), fetchMarket()]);
+    setRefreshing(false);
+  };
+
   return (
     <>
       {loadError && (
@@ -153,8 +162,18 @@ export default function OverviewPage() {
       <div className="dash-header-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28, flexWrap: 'wrap', gap: 16 }}>
         <div>
           <h1 className="dash-title" style={{ marginBottom: 4 }}>Welcome back, {firstName}!</h1>
-          <p className="dash-last-updated" style={{ margin: 0 }}>
-            {summary ? `Last updated ${new Date(summary.lastUpdated).toLocaleString()}` : 'Loading portfolio summary…'}
+          <p className="dash-last-updated" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>{summary ? `Last updated ${new Date(summary.lastUpdated).toLocaleTimeString()}` : 'Loading portfolio summary…'}</span>
+            <button
+              type="button"
+              className="btn btn-sm btn-outline"
+              onClick={handleManualRefresh}
+              disabled={refreshing}
+              style={{ padding: '2px 8px', fontSize: '11px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+              title="Refresh balances and accruals"
+            >
+              <RefreshCw size={11} className={refreshing ? 'spin' : ''} /> {refreshing ? 'Refreshing…' : 'Refresh'}
+            </button>
           </p>
         </div>
         <div className="dash-actions" style={{ display: 'flex', gap: 12 }}>

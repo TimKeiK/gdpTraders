@@ -295,7 +295,7 @@ export interface Transaction {
   id: string;
   userId: string;
   date: string;
-  type: 'Deposit' | 'Withdrawal' | 'Trade' | 'Fee' | 'Performance Fee' | 'Reinvest';
+  type: 'Deposit' | 'Withdrawal' | 'Trade' | 'Fee' | 'Performance Fee' | 'Reinvest' | 'Daily Accrual';
   asset: string;
   amount: number;
   strategy: string;
@@ -562,8 +562,8 @@ export async function addInvestment(inv: Investment): Promise<void> {
  *  Profile Settings (both read the investments table) reflect the change. */
 export async function updateInvestment(inv: Investment): Promise<void> {
   await pool.query(
-    `INSERT INTO investments (id, user_id, initial_deposit, assigned_plan, daily_rate, duration_days, start_date, end_date, total_expected_return, status, plan_override)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    `INSERT INTO investments (id, user_id, initial_deposit, assigned_plan, daily_rate, duration_days, start_date, end_date, total_expected_return, status, plan_override, current_value, accrued_profit, accrued_days)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      ON CONFLICT (id) DO UPDATE SET
        initial_deposit = EXCLUDED.initial_deposit,
        assigned_plan = EXCLUDED.assigned_plan,
@@ -572,9 +572,26 @@ export async function updateInvestment(inv: Investment): Promise<void> {
        end_date = EXCLUDED.end_date,
        total_expected_return = EXCLUDED.total_expected_return,
        status = EXCLUDED.status,
-       plan_override = EXCLUDED.plan_override`,
-    [inv.id, inv.userId, inv.initialDeposit, inv.assignedPlan, inv.dailyRate,
-     inv.durationDays, inv.startDate, inv.endDate, inv.totalExpectedReturn, inv.status, inv.planOverride ?? false]
+       plan_override = EXCLUDED.plan_override,
+       current_value = EXCLUDED.current_value,
+       accrued_profit = EXCLUDED.accrued_profit,
+       accrued_days = EXCLUDED.accrued_days`,
+    [
+      inv.id,
+      inv.userId,
+      inv.initialDeposit,
+      inv.assignedPlan,
+      inv.dailyRate,
+      inv.durationDays,
+      inv.startDate,
+      inv.endDate,
+      inv.totalExpectedReturn,
+      inv.status,
+      inv.planOverride ?? false,
+      inv.currentValue ?? inv.initialDeposit,
+      inv.accruedProfit ?? 0,
+      inv.accruedDays ?? 0,
+    ]
   );
 }
 
@@ -1005,17 +1022,23 @@ export async function getProcessedAccrualDates(investmentId: string): Promise<st
 
 /** High-level admin status for the accrual job. */
 export async function getAccrualSummary() {
-  const [active, today] = await Promise.all([
+  const [active, today, allTime] = await Promise.all([
     pool.query(`SELECT COUNT(*) AS n FROM investments WHERE status = 'active'`),
     pool.query(
       `SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amt
          FROM investment_accruals WHERE business_date = CURRENT_DATE`,
+    ),
+    pool.query(
+      `SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS amt
+         FROM investment_accruals`,
     ),
   ]);
   return {
     activeInvestments: Number(active.rows[0].n),
     todayAccruals: Number(today.rows[0].n),
     todayAmount: Number(today.rows[0].amt),
+    totalAccruals: Number(allTime.rows[0].n),
+    totalAmount: Number(allTime.rows[0].amt),
   };
 }
 

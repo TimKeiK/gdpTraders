@@ -25,10 +25,19 @@ export interface AccrualStep {
   balanceAfter: number;
 }
 
-/** True for Monday-Friday (UTC). Weekends never accrue. */
-export function isBusinessDay(d: Date): boolean {
+/** Default major non-trading market holidays (YYYY-MM-DD in UTC). */
+export const DEFAULT_HOLIDAYS = new Set<string>([
+  '2026-01-01', // New Year's Day
+  '2026-12-25', // Christmas Day
+]);
+
+/** True for Monday-Friday (UTC) excluding market holidays. Weekends never accrue. */
+export function isBusinessDay(d: Date, holidays: Set<string> = DEFAULT_HOLIDAYS): boolean {
   const day = d.getUTCDay();
-  return day !== 0 && day !== 6;
+  if (day === 0 || day === 6) return false;
+  const ymd = toYmd(d);
+  if (holidays.has(ymd)) return false;
+  return true;
 }
 
 /** YYYY-MM-DD (UTC). */

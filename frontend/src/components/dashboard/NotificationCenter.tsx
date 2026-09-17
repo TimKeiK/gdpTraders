@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bell, Banknote, TrendingUp, TrendingDown, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { api, formatCurrency } from '../../api/client';
 
 interface NotificationItem {
   id: string;
@@ -11,24 +12,17 @@ interface NotificationItem {
 
 const DEFAULT_ITEMS: NotificationItem[] = [
   {
-    id: 'nd-1',
-    icon: 'accrual',
-    title: 'Daily accrual credited',
-    detail: 'Your Silver Plan earned +$3.80 in passive income today.',
-    time: 'Today · 12:00 AM',
-  },
-  {
     id: 'nd-2',
     icon: 'market-down',
     title: 'BTC moving',
-    detail: 'Bitcoin is down ~3% over the last hour — a normal market swing.',
+    detail: 'Bitcoin is down ~3% over the last hour — quantitative hedging active.',
     time: 'Today · 9:40 AM',
   },
   {
     id: 'nd-3',
     icon: 'deposit',
     title: 'Deposit confirmed',
-    detail: 'Your last deposit was confirmed and allocated to BTC.',
+    detail: 'Your last deposit was confirmed and allocated to quantitative strategies.',
     time: 'Yesterday',
   },
   {
@@ -52,7 +46,26 @@ export default function NotificationCenter() {
   const [open, setOpen] = useState(false);
   const [readIds, setReadIds] = useState<Set<string>>(new Set());
   const wrapRef = useRef<HTMLDivElement>(null);
-  const [items] = useState<NotificationItem[]>(DEFAULT_ITEMS);
+  const [items, setItems] = useState<NotificationItem[]>(DEFAULT_ITEMS);
+
+  useEffect(() => {
+    let mounted = true;
+    api.getTransactions().then((txs) => {
+      if (!mounted) return;
+      const accrualTxs = txs.filter((t) => t.type === 'Daily Accrual' || t.type.toLowerCase().includes('accrual'));
+      if (accrualTxs.length > 0) {
+        const dynamicItems: NotificationItem[] = accrualTxs.slice(0, 3).map((t, idx) => ({
+          id: `acc-${t.id}-${idx}`,
+          icon: 'accrual',
+          title: 'Daily accrual credited',
+          detail: `Earned +${formatCurrency(t.amount)} passive income on ${t.strategy || 'active plan'}.`,
+          time: new Date(t.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        }));
+        setItems([...dynamicItems, ...DEFAULT_ITEMS]);
+      }
+    }).catch(() => {});
+    return () => { mounted = false; };
+  }, []);
 
   const unread = items.filter((i) => !readIds.has(i.id)).length;
 

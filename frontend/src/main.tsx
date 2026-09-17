@@ -2,6 +2,9 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import './styles/index.css';
+import SmoothScroll from './components/motion/SmoothScroll';
+import ScrollProgress from './components/motion/ScrollProgress';
+import CustomCursor from './components/motion/CustomCursor';
 
 // Auth
 import { AuthProvider } from './contexts/AuthContext';
@@ -49,6 +52,10 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <AuthProvider>
       <BrowserRouter>
+        {/* Global motion layer: smooth scroll, progress bar, custom cursor */}
+        <SmoothScroll />
+        <ScrollProgress />
+        <CustomCursor />
         <Routes>
           <Route element={<Layout />}>
             <Route index element={<HomePage />} />

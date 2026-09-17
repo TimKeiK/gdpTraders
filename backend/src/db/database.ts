@@ -80,6 +80,12 @@ export interface Investment {
   /** True when an admin manually overrode this row's plan. Auto-assigned rows
    *  omit this; the runtime amount-based fallback must not revert an override. */
   planOverride?: boolean;
+  /** Running total (initial_deposit + accrued profit) shown as current value. */
+  currentValue?: number;
+  /** Cumulative automatically-accrued profit for this investment. */
+  accruedProfit?: number;
+  /** Number of business days already credited for this investment. */
+  accruedDays?: number;
 }
 
 export interface LedgerEntry {
@@ -97,7 +103,7 @@ export interface Transaction {
   id: string;
   userId: string;
   date: string;
-  type: 'Deposit' | 'Withdrawal' | 'Trade' | 'Fee' | 'Performance Fee' | 'Reinvest';
+  type: 'Deposit' | 'Withdrawal' | 'Trade' | 'Fee' | 'Performance Fee' | 'Reinvest' | 'Daily Accrual';
   asset: string;
   amount: number;
   strategy: string;

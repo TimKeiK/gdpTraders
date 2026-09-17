@@ -41,8 +41,7 @@ import {
   computeExpectedReturn,
   MIN_DEPOSIT,
 } from '../data/plans.js';
-import { computeReferralCommission } from '../lib/referrals.js';
-import { runInvestmentAccrual } from '../services/accrual.js';
+import { runInvestmentAccrual, getSchedulerStatus } from '../services/accrual.js';
 
 const router = Router();
 
@@ -643,13 +642,56 @@ router.post(
     await addTransaction(updated);
 
     if (tx.type === 'Reinvest') {
-      // Profit → capital: increase the cost basis (deposit entry) and remove
+      // 1) Ledger: Profit → capital: increase the cost basis (deposit entry) and remove
       // the same amount from P&L (balancing trade entry). Net effect on the
       // client's total portfolio value is zero — the money just changes bucket.
       await appendLedgerEntry(tx.userId, tx.asset, amount, 'deposit', tx.id);
       await appendLedgerEntry(tx.userId, tx.asset, -amount, 'trade', tx.id);
-      await addAuditLog(tx.userId, 'REINVEST_CONFIRMED', `Reinvestment ${tx.id} approved: ${amount} ${tx.asset} moved from profit to initial capital by ${req.user!.email}`);
-      res.json({ transaction: updated, message: `Reinvestment ${tx.id} approved. ${amount} ${tx.asset} of profit added to the client's initial capital.` });
+
+      // 2) Deduct from available_withdrawal balance (since the profit is now locked into investment capital).
+      const user = await findUserById(tx.userId);
+      if (user) {
+        const newAvailable = Math.max(0, Number(((user.availableWithdrawal ?? 0) - amount).toFixed(2)));
+        await setAvailableWithdrawal(tx.userId, newAvailable);
+      }
+
+      // 3) Update the client's active investment: add the reinvested amount to initialDeposit
+      // and re-derive plan tier (unless manually overridden).
+      const activeInv = await getActiveInvestmentForUser(tx.userId);
+      let planNote = '';
+      if (activeInv) {
+        const newPrincipal = Number((activeInv.initialDeposit + amount).toFixed(2));
+        const override = activeInv.planOverride === true;
+        const newPlan = override ? null : getPlanByAmount(newPrincipal);
+        const rate = override ? (activeInv.dailyRate ?? 0) : (newPlan?.dailyRate ?? activeInv.dailyRate ?? 0);
+        const duration = override ? (activeInv.durationDays ?? 100) : (newPlan?.durationDays ?? activeInv.durationDays ?? 100);
+        const planName = override ? activeInv.assignedPlan : (newPlan?.name ?? activeInv.assignedPlan);
+
+        const updatedInv: Investment = {
+          ...activeInv,
+          initialDeposit: newPrincipal,
+          assignedPlan: planName,
+          dailyRate: rate,
+          durationDays: duration,
+          totalExpectedReturn: computeExpectedReturn(newPrincipal, rate, duration),
+          currentValue: Number(((activeInv.currentValue ?? activeInv.initialDeposit) + amount).toFixed(2)),
+        };
+        await updateInvestment(updatedInv);
+        planNote = ` Active plan updated to ${planName} ($${newPrincipal} initial capital, ${rate}% daily).`;
+      } else if (getPlanByAmount(amount)) {
+        const newInv = await recordInvestmentForDeposit(tx.userId, amount);
+        planNote = ` Created active plan ${newInv.assignedPlan} ($${amount} initial capital).`;
+      }
+
+      await addAuditLog(
+        tx.userId,
+        'REINVEST_CONFIRMED',
+        `Reinvestment ${tx.id} approved: ${amount} ${tx.asset} moved from profit to initial capital by ${req.user!.email}.${planNote}`
+      );
+      res.json({
+        transaction: updated,
+        message: `Reinvestment ${tx.id} approved. ${amount} ${tx.asset} of profit added to initial capital and deducted from available withdrawal.${planNote}`,
+      });
       return;
     }
 

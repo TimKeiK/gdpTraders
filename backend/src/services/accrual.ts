@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid';
 import { getAllActiveInvestments, getProcessedAccrualDates, creditDailyAccrual } from '../db/index.js';
-import { computeDailyAccruals, enumerateBusinessDates, parseYmd, toYmd } from '../data/accrual.js';
+import { computeDailyAccruals, enumerateBusinessDates, parseYmd, toYmd, isBusinessDay } from '../data/accrual.js';
 import { getPlanByAmount } from '../data/plans.js';
 
 export interface AccrualRunResult {
@@ -114,11 +114,57 @@ export async function runInvestmentAccrual(opts: { dryRun?: boolean; now?: Date 
   return { scanned: investments.length, creditedDays, investmentsMatured, totalProfit, skipped, dryRun: !!opts.dryRun };
 }
 
-/** Daily scheduler — catch up on startup, then run on a fixed cadence. */
-export function scheduleInvestmentAccrual(intervalMs = 12 * 60 * 60 * 1000): { clear: () => void } {
-  const run = async () => {
+export interface SchedulerState {
+  status: 'active' | 'running' | 'idle';
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  lastResult: AccrualRunResult | null;
+}
+
+const schedulerState: SchedulerState = {
+  status: 'idle',
+  lastRunAt: null,
+  nextRunAt: null,
+  lastResult: null,
+};
+
+/** Compute the next 00:01:00 UTC cutoff time. */
+export function getNextMidnightUtc(now = new Date()): Date {
+  const next = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() + 1,
+    0, 1, 0, 0,
+  ));
+  return next;
+}
+
+/** Exposes the live scheduler status for admin inspection. */
+export function getSchedulerStatus() {
+  const now = new Date();
+  return {
+    ...schedulerState,
+    isBusinessDayToday: isBusinessDay(now),
+    currentUtcDate: toYmd(now),
+  };
+}
+
+/**
+ * Production-grade daily business-day accrual scheduler:
+ *  1. Catch-up on startup: scans from each investment's deposit date to today.
+ *  2. Schedules next run precisely at upcoming 00:01:00 UTC.
+ *  3. Runs an hourly heartbeat sanity check in case of server sleep / clock drift.
+ */
+export function scheduleInvestmentAccrual(): { clear: () => void } {
+  let timeoutId: NodeJS.Timeout | null = null;
+  let intervalId: NodeJS.Timeout | null = null;
+
+  const execute = async () => {
+    schedulerState.status = 'running';
     try {
       const res = await runInvestmentAccrual();
+      schedulerState.lastRunAt = new Date().toISOString();
+      schedulerState.lastResult = res;
       if (res.creditedDays > 0 || res.investmentsMatured > 0) {
         console.log(
           `[accrual] scanned=${res.scanned} creditedDays=${res.creditedDays} matured=${res.investmentsMatured} profit=${res.totalProfit.toFixed(2)}`,
@@ -126,11 +172,44 @@ export function scheduleInvestmentAccrual(intervalMs = 12 * 60 * 60 * 1000): { c
       }
     } catch (err) {
       console.error('[accrual] run failed:', err);
+    } finally {
+      schedulerState.status = 'active';
     }
   };
 
-  // Backfill on startup ("from the initial deposit till now"), then cadence.
-  void run();
-  const id = setInterval(() => void run(), intervalMs);
-  return { clear: () => clearInterval(id) };
+  const scheduleNextMidnight = () => {
+    const next = getNextMidnightUtc();
+    schedulerState.nextRunAt = next.toISOString();
+    const msUntil = Math.max(1000, next.getTime() - Date.now());
+
+    timeoutId = setTimeout(async () => {
+      await execute();
+      scheduleNextMidnight();
+    }, msUntil);
+  };
+
+  // 1. Initial startup backfill
+  void execute().then(() => {
+    // 2. Schedule exact midnight UTC cadence
+    scheduleNextMidnight();
+  });
+
+  // 3. Hourly heartbeat check (guards against clock drift / missed wakeups)
+  intervalId = setInterval(async () => {
+    const now = new Date();
+    const todayYmd = toYmd(now);
+    const lastYmd = schedulerState.lastRunAt ? toYmd(new Date(schedulerState.lastRunAt)) : null;
+    if (isBusinessDay(now) && lastYmd !== todayYmd) {
+      console.log(`[accrual] Heartbeat detected uncredited business day (${todayYmd}). Triggering catch-up...`);
+      await execute();
+    }
+  }, 60 * 60 * 1000);
+
+  return {
+    clear: () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (intervalId) clearInterval(intervalId);
+      schedulerState.status = 'idle';
+    },
+  };
 }

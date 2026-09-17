@@ -25,10 +25,15 @@ function nextPayoutTime(now: number): number {
 
 export default function InvestmentPlanCard({ investment, daysRemaining }: InvestmentPlanCardProps) {
   const totalDays = investment.durationDays || 100;
-  const elapsed = Math.min(totalDays, Math.max(0, totalDays - daysRemaining));
+  const elapsed = typeof investment.accruedDays === 'number' && investment.accruedDays > 0
+    ? Math.min(totalDays, investment.accruedDays)
+    : Math.min(totalDays, Math.max(0, totalDays - daysRemaining));
   const pct = totalDays > 0 ? Math.min(100, (elapsed / totalDays) * 100) : 0;
 
   const dailyAccrual = (investment.initialDeposit * ((investment.dailyRate ?? 0) / 100)) || 0;
+  const accruedProfit = typeof investment.accruedProfit === 'number' && investment.accruedProfit > 0
+    ? investment.accruedProfit
+    : (elapsed * dailyAccrual);
 
   const [now, setNow] = useState(() => Date.now());
   const [burstKey, setBurstKey] = useState(0);
@@ -58,7 +63,7 @@ export default function InvestmentPlanCard({ investment, daysRemaining }: Invest
     if (!highest) return;
 
     setCelebrated((prev) => new Set(prev).add(highest));
-    setMilestoneMsg(`Your plan is now ${highest}% complete — earning ${formatCurrency(dailyAccrual)} every day.`);
+    setMilestoneMsg(`Your plan is now ${highest}% complete — earning ${formatCurrency(dailyAccrual)} every business day.`);
     setBurstKey((k) => k + 1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pct]);
@@ -79,12 +84,12 @@ export default function InvestmentPlanCard({ investment, daysRemaining }: Invest
         <div className="plan-progress-title">
           <BadgeCheck size={22} className="plan-progress-badge" aria-hidden="true" />
           <div>
-            <span className="plan-progress-eyebrow">Current Investment Plan</span>
-            <h2 className="plan-progress-name">{investment.planName} Plan</h2>
+            <span className="plan-progress-eyebrow">Active Investment Plan</span>
+            <h2 className="plan-progress-name">{investment.planName} Plan ({investment.dailyRate}% Daily)</h2>
           </div>
         </div>
         <div className="plan-progress-daychip">
-          Day <strong>{elapsed}</strong> of {totalDays}
+          Day <strong>{elapsed}</strong> of {totalDays} business days
         </div>
       </div>
 
@@ -111,12 +116,16 @@ export default function InvestmentPlanCard({ investment, daysRemaining }: Invest
       <div className="plan-timeline">
         <div className="plan-timeline-stats">
           <div>
-            <span className="plan-stat-label">Matures On</span>
-            <strong className="mono">{matureLabel}</strong>
+            <span className="plan-stat-label">Daily Accrual</span>
+            <strong className="mono pos">+{formatCurrency(dailyAccrual)} <span style={{ fontSize: '11px', color: 'var(--gray-400)', fontWeight: 'normal' }}>/ day</span></strong>
           </div>
           <div>
-            <span className="plan-stat-label">Daily Accrual</span>
-            <strong className="mono pos">+{formatCurrency(dailyAccrual)}</strong>
+            <span className="plan-stat-label">Earned So Far</span>
+            <strong className="mono pos">+{formatCurrency(accruedProfit)}</strong>
+          </div>
+          <div>
+            <span className="plan-stat-label">Matures On</span>
+            <strong className="mono">{matureLabel}</strong>
           </div>
           <div className="plan-countdown">
             <span className="plan-stat-label">

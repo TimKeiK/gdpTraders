@@ -677,6 +677,10 @@ router.get('/investment', async (req: AuthenticatedRequest, res: Response) => {
       endDate,
       totalExpectedReturn,
       status: inv.status,
+      currentValue: inv.currentValue ?? inv.initialDeposit,
+      accruedProfit: inv.accruedProfit ?? 0,
+      accruedDays: inv.accruedDays ?? 0,
+      planOverride: inv.planOverride ?? false,
     },
     daysRemaining,
   });

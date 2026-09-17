@@ -54,12 +54,16 @@ export interface ActiveInvestment {
   endDate: string | null;
   totalExpectedReturn: number | null;
   status: string;
+  currentValue?: number;
+  accruedProfit?: number;
+  accruedDays?: number;
+  planOverride?: boolean;
 }
 
 export interface Transaction {
   id: string;
   date: string;
-  type: 'Deposit' | 'Withdrawal' | 'Trade' | 'Fee' | 'Performance Fee' | 'Reinvest';
+  type: 'Deposit' | 'Withdrawal' | 'Trade' | 'Fee' | 'Performance Fee' | 'Reinvest' | 'Daily Accrual';
   asset: string;
   amount: number;
   strategy: string;
