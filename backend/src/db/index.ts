@@ -62,6 +62,8 @@ export const {
   getPerformance,
   addAuditLog,
   getAuditLogs,
+  getNotificationReads,
+  markNotificationsRead,
   addWithdrawalRequest,
   getWithdrawalRequests,
   updateWithdrawalRequest,

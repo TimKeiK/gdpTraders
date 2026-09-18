@@ -14,6 +14,8 @@ import {
   findUserById,
   addTransaction,
   addAuditLog,
+  getNotificationReads,
+  markNotificationsRead,
   appendLedgerEntry,
   verifyLedgerIntegrity,
   getAllReferralEarnings,
@@ -1004,6 +1006,151 @@ router.get(
   requireRole(...STAFF),
   async (req: AuthenticatedRequest, res: Response) => {
     res.json(await getAuditLogs());
+  }
+);
+
+// ---------- Admin notifications ----------
+
+/**
+ * Notification tier a raw audit-log action maps to.
+ * - urgent: a signature/decision is expected from staff
+ * - info:   money moved
+ * - low:    routine noise (still surfaced, quietest styling)
+ * Actions missing from this map produce no notification at all.
+ */
+const NOTIFICATION_PRIORITY: Record<'urgent' | 'info' | 'low', string[]> = {
+  urgent: ['WITHDRAWAL_REQUESTED', 'WITHDRAWAL_APPROVAL', 'KYC_SUBMITTED', 'KYC_STATUS_CHANGED'],
+  info: ['DEPOSIT', 'DEPOSIT_CONFIRMED', 'DEPOSIT_SUBMITTED', 'WITHDRAWAL_EXECUTED', 'ADMIN_CREDIT_PROFIT', 'ADMIN_DEBIT_LOSS'],
+  low: ['LOGIN_SUCCESS'],
+};
+
+const NOTIFICATION_LIMIT = 50;
+
+/** Extracts a transaction id (TX-…) from free-text audit details when present. */
+function txIdFromDetails(details: string): string | null {
+  const m = details.match(/\bTX-[A-Za-z0-9_-]+/);
+  return m ? m[0] : null;
+}
+
+type NotificationTier = 'urgent' | 'info' | 'low';
+
+export interface AdminNotificationItem {
+  id: string;
+  /** Same id shape as GET /admin/audit-logs, so the panel and the full trail agree. */
+  eventId: string;
+  action: string;
+  details: string;
+  tier: NotificationTier;
+  userId: string | null;
+  createdAt: string;
+  read: boolean;
+  /** Deep link rendered by the bell panel (null = no record to jump to). */
+  link: { to: string; label: string } | null;
+}
+
+function tierForAction(action: string): NotificationTier | null {
+  if (NOTIFICATION_PRIORITY.urgent.includes(action)) return 'urgent';
+  if (NOTIFICATION_PRIORITY.info.includes(action)) return 'info';
+  if (NOTIFICATION_PRIORITY.low.includes(action)) return 'low';
+  return null;
+}
+
+/** Click-through target: urgent items land on the queue that owns the decision. */
+function linkForNotification(action: string, details: string): AdminNotificationItem['link'] {
+  const txId = txIdFromDetails(details);
+  if (action === 'WITHDRAWAL_REQUESTED' || action === 'WITHDRAWAL_APPROVAL') {
+    return { to: '/admin/approvals', label: 'Open Approvals' };
+  }
+  if (action === 'WITHDRAWAL_EXECUTED' && txId) {
+    return { to: '/admin/transactions', label: 'Open Transactions' };
+  }
+  if (action === 'KYC_SUBMITTED' || action === 'KYC_STATUS_CHANGED') {
+    return { to: '/admin/accounts?kyc=PENDING', label: 'Review KYC queue' };
+  }
+  if (action.startsWith('ADMIN_')) {
+    return { to: '/admin/audit-logs', label: 'View activity' };
+  }
+  if (action.startsWith('DEPOSIT') && txId) {
+    return { to: '/admin/transactions?status=Processing', label: 'Open Transactions' };
+  }
+  return null;
+}
+
+/**
+ * GET /api/admin/notifications (admin/compliance)
+ * The audit log projected as notifications: tiered, most-recent-first, with
+ * per-admin read state. No new events storage — audit_logs IS the feed.
+ * Query: ?limit (default 50, max 100).
+ */
+router.get(
+  '/notifications',
+  requireRole(...STAFF),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const limit = Math.min(Math.max(Number(req.query.limit) || NOTIFICATION_LIMIT, 1), 100);
+    const adminId = req.user!.id;
+    const [logs, reads] = await Promise.all([
+      getAuditLogs(),
+      getNotificationReads(adminId),
+    ]);
+    const readSet = new Set(reads);
+    const items: AdminNotificationItem[] = [];
+    for (const log of logs) {
+      const tier = tierForAction(log.action);
+      if (!tier) continue;
+      items.push({
+        id: log.id,
+        eventId: log.id,
+        action: log.action,
+        details: log.details,
+        tier,
+        userId: log.userId,
+        createdAt: log.createdAt,
+        read: readSet.has(log.id),
+        link: linkForNotification(log.action, log.details),
+      });
+      if (items.length >= limit) break;
+    }
+    res.json({
+      items,
+      unreadCount: items.filter((i) => !i.read).length,
+    });
+  }
+);
+
+/**
+ * POST /api/admin/notifications/read (admin/compliance)
+ * Marks events seen. Body: { eventIds: string[] } or { all: true } to mark
+ * every notification currently in the feed (pass ?limit semantics via
+ * eventIds from the panel, or all:true which resolves server-side).
+ */
+router.post(
+  '/notifications/read',
+  requireRole(...STAFF),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const adminId = req.user!.id;
+    const { eventIds, all } = (req.body ?? {}) as { eventIds?: unknown; all?: unknown };
+    let ids: string[];
+    if (all === true) {
+      const logs = await getAuditLogs();
+      ids = logs
+        .filter((l) => tierForAction(l.action) !== null)
+        .slice(0, NOTIFICATION_LIMIT)
+        .map((l) => l.id);
+    } else {
+      if (!Array.isArray(eventIds) || eventIds.some((e) => typeof e !== 'string')) {
+        res.status(400).json({ error: 'eventIds must be an array of strings, or pass { all: true }' });
+        return;
+      }
+      ids = (eventIds as string[]).slice(0, 200);
+    }
+    const marked = await markNotificationsRead(adminId, ids);
+    const logs = await getAuditLogs();
+    const readSet = new Set(await getNotificationReads(adminId));
+    const unreadCount = logs
+      .filter((l) => tierForAction(l.action) !== null)
+      .slice(0, NOTIFICATION_LIMIT)
+      .filter((l) => !readSet.has(l.id)).length;
+    res.json({ marked, unreadCount });
   }
 );
 

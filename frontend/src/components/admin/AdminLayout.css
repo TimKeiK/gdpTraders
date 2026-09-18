@@ -157,6 +157,12 @@
   gap: 12px;
 }
 
+.admin-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .admin-topbar-eyebrow {
   font-size: 11px;
   text-transform: uppercase;

@@ -12,6 +12,7 @@ import {
   Settings,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import AdminNotifications from './AdminNotifications';
 import './AdminLayout.css';
 
 const navItems = [
@@ -85,9 +86,12 @@ export default function AdminLayout() {
               <div className="admin-topbar-eyebrow">Restricted area · {roleLabel}</div>
               <div className="admin-topbar-user">{user?.email}</div>
             </div>
-            <span className="admin-live-badge">
-              <span className="admin-live-dot" /> LIVE SYSTEM DATA
-            </span>
+            <div className="admin-topbar-right">
+              <AdminNotifications />
+              <span className="admin-live-badge">
+                <span className="admin-live-dot" /> LIVE SYSTEM DATA
+              </span>
+            </div>
           </div>
           <Outlet />
         </div>

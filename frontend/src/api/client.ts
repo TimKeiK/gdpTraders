@@ -457,6 +457,26 @@ export interface AuditLogEntryView {
   createdAt: string;
 }
 
+/** A single admin-portal notification, derived from the immutable audit log. */
+export type NotificationTier = 'urgent' | 'info' | 'low';
+
+export interface AdminNotification {
+  id: string;
+  eventId: string;
+  action: string;
+  details: string;
+  tier: NotificationTier;
+  userId: string | null;
+  createdAt: string;
+  read: boolean;
+  link: { to: string; label: string } | null;
+}
+
+export interface AdminNotificationsResponse {
+  items: AdminNotification[];
+  unreadCount: number;
+}
+
 // ---------- Admin API ----------
 
 export const adminApi = {
@@ -482,6 +502,19 @@ export const adminApi = {
 
   async getAuditLogs(): Promise<AuditLogEntryView[]> {
     return request<AuditLogEntryView[]>('/admin/audit-logs');
+  },
+
+  /** Notification feed projected from the audit log (tiered, most-recent-first). */
+  async getNotifications(limit = 50): Promise<AdminNotificationsResponse> {
+    return request<AdminNotificationsResponse>(`/admin/notifications?limit=${limit}`);
+  },
+
+  /** Mark notification events seen: explicit ids, or all currently in the feed. */
+  async markNotificationsRead(eventIds?: string[], all = false): Promise<{ marked: number; unreadCount: number }> {
+    return request<{ marked: number; unreadCount: number }>('/admin/notifications/read', {
+      method: 'POST',
+      body: JSON.stringify(all ? { all: true } : { eventIds: eventIds ?? [] }),
+    });
   },
 
   async setKyc(userId: string, status: string): Promise<{ userId: string; status: string }> {
