@@ -157,6 +157,16 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_user_id VARCHAR(50);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_users_referral_code ON users(referral_code);
 CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by_user_id);
 
+-- Admin notification read receipts (per staff member, over the audit_logs
+-- feed — no separate events table; the immutable audit log IS the source).
+CREATE TABLE IF NOT EXISTS admin_notification_reads (
+    admin_id VARCHAR(50) NOT NULL,
+    event_id VARCHAR(255) NOT NULL,
+    read_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (admin_id, event_id)
+);
+CREATE INDEX IF NOT EXISTS idx_admin_notification_reads_admin ON admin_notification_reads(admin_id);
+
 -- Audit trail for every referral commission payout (kept in addition to the ledger).
 CREATE TABLE IF NOT EXISTS referral_earnings (
     id BIGSERIAL PRIMARY KEY,

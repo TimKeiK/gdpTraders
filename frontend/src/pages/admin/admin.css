@@ -259,7 +259,10 @@
   border: 1px solid var(--glass-border);
   border-radius: 8px;
   padding: 8px 12px;
-  min-width: 240px;
+  /* Grow with the container instead of clipping the placeholder copy. */
+  flex: 1 1 320px;
+  max-width: 460px;
+  min-width: 0;
 }
 
 .admin-search input {
@@ -270,6 +273,7 @@
   font-family: inherit;
   font-size: 14px;
   width: 100%;
+  min-width: 0;
 }
 
 .admin-search input::placeholder {
@@ -325,3 +329,262 @@
 @media (max-width: 640px) {
   .admin-kpis { grid-template-columns: 1fr; }
 }
+
+/* ------------------------------------------------------------------
+   Accounts & Funds table — information-architecture refinements.
+   Only the five decision-making columns stay visible (Account, Role,
+   KYC, Balance, Actions); everything else lives in the expandable row.
+   ------------------------------------------------------------------ */
+
+/* Consistent, compact row rhythm: 14px vertical padding + middle alignment
+   instead of tall rows with empty vertical gaps. */
+.admin-table.table-accounts td {
+  padding: 14px;
+  vertical-align: middle;
+  line-height: 1.35;
+}
+
+.admin-table.table-accounts th {
+  padding: 12px 14px;
+}
+
+/* Clickable account rows -------------------------------------------------- */
+.admin-row-expandable {
+  cursor: pointer;
+}
+
+.admin-row-expandable.expanded > td {
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom-color: transparent;
+}
+
+.admin-account-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-expand-caret {
+  display: inline-flex;
+  flex: none;
+  color: var(--gray-400);
+  transition: transform 0.15s ease;
+}
+
+.admin-expand-caret.open {
+  transform: rotate(180deg);
+  color: var(--red);
+}
+
+.admin-account-name {
+  font-weight: 700;
+  color: var(--white);
+  line-height: 1.25;
+}
+
+.admin-account-email {
+  font-size: 12.5px;
+  color: var(--gray-400);
+  line-height: 1.25;
+}
+
+.admin-account-id {
+  font-size: 11px;
+  color: var(--gray-500);
+  line-height: 1.25;
+}
+
+/* Pinned Actions column — always reachable, never scrolled off-screen.
+   The opaque background = the card's glass tint laid over the page base,
+   so the pinned cell hides the content scrolling beneath it. */
+.admin-col-actions {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background: linear-gradient(0deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.04)), var(--bg-base);
+  box-shadow: -14px 0 18px -14px rgba(0, 0, 0, 0.9);
+}
+
+th.admin-col-actions {
+  z-index: 3;
+}
+
+.admin-table tbody tr:hover .admin-col-actions {
+  background: linear-gradient(0deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.07)), var(--bg-base);
+}
+
+.admin-row-expandable.expanded .admin-col-actions {
+  background: linear-gradient(0deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.05)), var(--bg-base);
+}
+
+.admin-actions-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Expandable detail row (Referral / P&L / Deposits / Withdrawals / Pending) */
+.admin-detail-row > td {
+  padding: 0 14px 16px;
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.admin-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--glass-border);
+  border-left: 3px solid var(--red);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.admin-detail-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--gray-400);
+  margin-bottom: 6px;
+}
+
+.admin-detail-value {
+  font-size: 13.5px;
+  color: var(--gray-600);
+  line-height: 1.45;
+}
+
+.admin-detail-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--gray-400);
+}
+
+/* Deep-link filter chip (e.g. /admin/accounts?kyc=PENDING) */
+.admin-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px 7px 12px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: var(--amber);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.admin-filter-chip button {
+  display: inline-flex;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.8;
+}
+
+.admin-filter-chip button:hover {
+  opacity: 1;
+}
+
+/* ------------------------------------------------------------------
+   Dashboard metric tiers.
+   Tier 1 (admin-kpis-action): "needs you" — accented left border + subtle
+   warm tint, clickable straight through to the filtered queue that owns
+   the decision. Tier 2 (admin-kpis-info / .muted): quiet informational
+   stats with no action accent.
+   ------------------------------------------------------------------ */
+
+.admin-tier-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--gray-400);
+  margin: 4px 0 14px;
+}
+
+.admin-kpis-action {
+  grid-template-columns: repeat(3, 1fr);
+  margin-bottom: 30px;
+}
+
+.admin-kpi-action {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  border-left: 3px solid var(--kpi-accent, var(--red));
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.admin-kpi-action:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  border-color: var(--glass-border);
+  border-left-color: var(--kpi-accent, var(--red));
+}
+
+.admin-kpi-action.red {
+  background: linear-gradient(0deg, rgba(239, 68, 68, 0.10), rgba(239, 68, 68, 0.10)), var(--glass-bg);
+}
+
+.admin-kpi-action.amber {
+  background: linear-gradient(0deg, rgba(245, 158, 11, 0.10), rgba(245, 158, 11, 0.10)), var(--glass-bg);
+}
+
+.admin-kpi-action.purple {
+  background: linear-gradient(0deg, rgba(139, 92, 246, 0.10), rgba(139, 92, 246, 0.10)), var(--glass-bg);
+}
+
+.admin-kpi-go {
+  vertical-align: text-bottom;
+  margin-left: 2px;
+}
+
+.admin-kpi-action:hover .admin-kpi-go {
+  color: var(--white);
+}
+
+.admin-kpis-info {
+  margin-bottom: 26px;
+}
+
+.admin-kpi.muted {
+  opacity: 0.92;
+}
+
+.admin-kpi.muted::before {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.admin-kpi.muted .admin-kpi-value {
+  font-size: 23px;
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .admin-kpis-action { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 1100px) {
+  .admin-detail-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .admin-detail-grid { grid-template-columns: 1fr; }
+}
+
+

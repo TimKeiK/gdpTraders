@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Users,
   ArrowDownCircle,
@@ -11,6 +12,7 @@ import {
   Activity,
   TrendingUp,
   TrendingDown,
+  ArrowRight,
 } from 'lucide-react';
 import { adminApi, formatCurrency, type AdminDashboard } from '../../api/client';
 import './admin.css';
@@ -56,73 +58,96 @@ export default function AdminDashboard() {
       {error && <div className="admin-msg err">⚠ {error}</div>}
 
       {s && (
-        <div className="admin-kpis">
-          <div className="admin-kpi purple">
-            <div className="admin-kpi-label"><Users size={15} /> Total Users</div>
-            <div className="admin-kpi-value">{s.totalUsers}</div>
-            <div className="admin-kpi-sub">{s.clients} clients · {s.staff} staff</div>
+        <>
+          {/* Tier 1 — needs action. Accented, clickable, each lands on the
+              filtered queue that owns the decision. */}
+          <div className="admin-tier-label">
+            <AlertTriangle size={13} /> Needs action
+          </div>
+          <div className="admin-kpis admin-kpis-action">
+            <Link to="/admin/accounts?kyc=PENDING" className="admin-kpi admin-kpi-action amber">
+              <div className="admin-kpi-label"><AlertTriangle size={15} /> Pending KYC</div>
+              <div className="admin-kpi-value">{s.pendingKyc}</div>
+              <div className="admin-kpi-sub">awaiting verification <ArrowRight size={12} className="admin-kpi-go" /></div>
+            </Link>
+
+            <Link to="/admin/approvals" className="admin-kpi admin-kpi-action red">
+              <div className="admin-kpi-label"><Clock size={15} /> Pending Withdrawals</div>
+              <div className="admin-kpi-value">{s.pendingWithdrawals}</div>
+              <div className="admin-kpi-sub">
+                {formatCurrency(s.pendingWithdrawalAmount)} awaiting signature <ArrowRight size={12} className="admin-kpi-go" />
+              </div>
+            </Link>
+
+            <Link to="/admin/transactions?status=Processing" className="admin-kpi admin-kpi-action purple">
+              <div className="admin-kpi-label"><Receipt size={15} /> Pending Approvals</div>
+              <div className="admin-kpi-value">{s.pendingApprovals}</div>
+              <div className="admin-kpi-sub">
+                {formatCurrency(s.pendingApprovalAmount)} deposits &amp; reinvestments <ArrowRight size={12} className="admin-kpi-go" />
+              </div>
+            </Link>
           </div>
 
-          <div className="admin-kpi green">
-            <div className="admin-kpi-label"><TrendingUp size={15} /> Total Profit</div>
-            <div className="admin-kpi-value">{formatCurrency(s.totalProfit, true)}</div>
-            <div className="admin-kpi-sub">admin credits</div>
+          {/* Tier 2 — informational. Quieter styling, passive stats only. */}
+          <div className="admin-tier-label">
+            <Activity size={13} /> Platform at a glance
           </div>
+          <div className="admin-kpis admin-kpis-info">
+            <div className="admin-kpi muted">
+              <div className="admin-kpi-label"><Users size={15} /> Total Users</div>
+              <div className="admin-kpi-value">{s.totalUsers}</div>
+              <div className="admin-kpi-sub">{s.clients} clients · {s.staff} staff</div>
+            </div>
 
-          <div className="admin-kpi red">
-            <div className="admin-kpi-label"><TrendingDown size={15} /> Total Loss</div>
-            <div className="admin-kpi-value">{formatCurrency(s.totalLoss, true)}</div>
-            <div className="admin-kpi-sub">admin debits</div>
-          </div>
+            <div className="admin-kpi muted">
+              <div className="admin-kpi-label"><TrendingUp size={15} /> Total Profit</div>
+              <div className="admin-kpi-value">{formatCurrency(s.totalProfit, true)}</div>
+              <div className="admin-kpi-sub">admin credits</div>
+            </div>
 
-          <div className="admin-kpi gold">
-            <div className="admin-kpi-label"><Activity size={15} /> Net P&L</div>
-            <div className="admin-kpi-value">{formatCurrency(s.netPnl, true)}</div>
-            <div className="admin-kpi-sub">profit − loss</div>
-          </div>
+            <div className="admin-kpi muted">
+              <div className="admin-kpi-label"><TrendingDown size={15} /> Total Loss</div>
+              <div className="admin-kpi-value">{formatCurrency(s.totalLoss, true)}</div>
+              <div className="admin-kpi-sub">admin debits</div>
+            </div>
 
-          <div className="admin-kpi gold">
-            <div className="admin-kpi-label"><DollarSign size={15} /> Assets Under Mgt</div>
-            <div className="admin-kpi-value">{formatCurrency(s.totalAUM, true)}</div>
-            <div className="admin-kpi-sub">derived from ledger</div>
-          </div>
+            <div className="admin-kpi muted">
+              <div className="admin-kpi-label"><Activity size={15} /> Net P&L</div>
+              <div className="admin-kpi-value">{formatCurrency(s.netPnl, true)}</div>
+              <div className="admin-kpi-sub">profit − loss</div>
+            </div>
 
-          <div className="admin-kpi green">
-            <div className="admin-kpi-label"><ArrowDownCircle size={15} /> Total Deposits</div>
-            <div className="admin-kpi-value">{formatCurrency(s.completedDeposits, true)}</div>
-            <div className="admin-kpi-sub">{s.processingDeposits} pending confirmation</div>
-          </div>
+            <div className="admin-kpi muted">
+              <div className="admin-kpi-label"><DollarSign size={15} /> Assets Under Mgt</div>
+              <div className="admin-kpi-value">{formatCurrency(s.totalAUM, true)}</div>
+              <div className="admin-kpi-sub">derived from ledger</div>
+            </div>
 
-          <div className="admin-kpi red">
-            <div className="admin-kpi-label"><ArrowUpCircle size={15} /> Total Withdrawals</div>
-            <div className="admin-kpi-value">{formatCurrency(s.completedWithdrawals, true)}</div>
-            <div className="admin-kpi-sub">{s.pendingWithdrawals} pending (${s.pendingWithdrawalAmount.toLocaleString()})</div>
-          </div>
+            <div className="admin-kpi muted">
+              <div className="admin-kpi-label"><ArrowDownCircle size={15} /> Total Deposits</div>
+              <div className="admin-kpi-value">{formatCurrency(s.completedDeposits, true)}</div>
+              <div className="admin-kpi-sub">{s.processingDeposits} pending confirmation</div>
+            </div>
 
-          <div className="admin-kpi amber">
-            <div className="admin-kpi-label"><AlertTriangle size={15} /> Pending KYC</div>
-            <div className="admin-kpi-value">{s.pendingKyc}</div>
-            <div className="admin-kpi-sub">awaiting verification</div>
-          </div>
+            <div className="admin-kpi muted">
+              <div className="admin-kpi-label"><ArrowUpCircle size={15} /> Total Withdrawals</div>
+              <div className="admin-kpi-value">{formatCurrency(s.completedWithdrawals, true)}</div>
+              <div className="admin-kpi-sub">{s.pendingWithdrawals} pending</div>
+            </div>
 
-          <div className="admin-kpi red">
-            <div className="admin-kpi-label"><Clock size={15} /> Pending Withdrawals</div>
-            <div className="admin-kpi-value">{s.pendingWithdrawals}</div>
-            <div className="admin-kpi-sub">needs multi-sig approval</div>
-          </div>
+            <div className="admin-kpi muted">
+              <div className="admin-kpi-label"><Receipt size={15} /> Fees Collected</div>
+              <div className="admin-kpi-value">{formatCurrency(s.fees, true)}</div>
+              <div className="admin-kpi-sub">{s.transactionCount} total transactions</div>
+            </div>
 
-          <div className="admin-kpi purple">
-            <div className="admin-kpi-label"><Receipt size={15} /> Fees Collected</div>
-            <div className="admin-kpi-value">{formatCurrency(s.fees, true)}</div>
-            <div className="admin-kpi-sub">{s.transactionCount} total transactions</div>
+            <div className="admin-kpi muted">
+              <div className="admin-kpi-label"><ShieldCheck size={15} /> Ledger Integrity</div>
+              <div className="admin-kpi-value">{s.ledgerEntries}</div>
+              <div className="admin-kpi-sub">{s.auditCount} audit entries</div>
+            </div>
           </div>
-
-          <div className="admin-kpi gold">
-            <div className="admin-kpi-label"><Activity size={15} /> Ledger Integrity</div>
-            <div className="admin-kpi-value">{s.ledgerEntries}</div>
-            <div className="admin-kpi-sub">{s.auditCount} audit entries</div>
-          </div>
-        </div>
+        </>
       )}
 
       <div className="admin-card">

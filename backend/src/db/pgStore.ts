@@ -276,6 +276,18 @@ export async function ensureSchema(cutoverYmd?: string): Promise<void> {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_referral_earnings_referrer ON referral_earnings(referrer_user_id)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_users_referred_by ON users(referred_by_user_id)`);
 
+  // ---- Admin notifications: per-admin read receipts over the audit log ----
+  // No event rows are stored here; the audit_logs table IS the feed. This
+  // table only remembers which events each admin has already seen.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS admin_notification_reads (
+      admin_id VARCHAR(50) NOT NULL,
+      event_id VARCHAR(255) NOT NULL,
+      read_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (admin_id, event_id)
+    )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_admin_notification_reads_admin ON admin_notification_reads(admin_id)`);
+
 }
 
 // ---------- Types (re-exported from database.ts) ----------
@@ -982,6 +994,33 @@ export async function getAuditLogs(): Promise<AuditLogEntry[]> {
     details: r.details,
     createdAt: r.created_at,
   }));
+}
+
+// ---------- Admin notification reads (per-admin read receipts) ----------
+
+/** Which event ids an admin has already seen (as notifications). */
+export async function getNotificationReads(adminId: string): Promise<string[]> {
+  const res = await pool.query(
+    'SELECT event_id FROM admin_notification_reads WHERE admin_id = $1',
+    [adminId]
+  );
+  return res.rows.map((r: any) => String(r.event_id));
+}
+
+/** Idempotent: marking an already-read event read again is a no-op. */
+export async function markNotificationsRead(adminId: string, eventIds: string[]): Promise<number> {
+  if (eventIds.length === 0) return 0;
+  const values: string[] = [];
+  const placeholders = eventIds.map((id, i) => {
+    values.push(adminId, String(id));
+    return `($${i * 2 + 1}, $${i * 2 + 2})`;
+  });
+  const res = await pool.query(
+    `INSERT INTO admin_notification_reads (admin_id, event_id) VALUES ${placeholders.join(', ')}
+     ON CONFLICT (admin_id, event_id) DO NOTHING`,
+    values
+  );
+  return res.rowCount ?? 0;
 }
 
 // ---------- Withdrawal requests ----------

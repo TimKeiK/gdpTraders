@@ -14,6 +14,8 @@ import {
   findUserById,
   addTransaction,
   addAuditLog,
+  getNotificationReads,
+  markNotificationsRead,
   appendLedgerEntry,
   verifyLedgerIntegrity,
   getAllReferralEarnings,
@@ -43,6 +45,7 @@ import {
   MIN_DEPOSIT,
 } from '../data/plans.js';
 import { investmentTermSummary, storedDateYmd, toYmd } from '../data/accrual.js';
+import { money2 } from '../lib/reinvest.js';
 import { runInvestmentAccrual, getSchedulerStatus } from '../services/accrual.js';
 import { config } from '../config.js';
 
@@ -144,6 +147,14 @@ router.get(
       .reduce((s, t) => s + t.amount, 0);
     const pendingWithdrawals = withdrawals.filter((t) => t.status === 'Pending');
     const processingDeposits = txns.filter((t) => t.type === 'Deposit' && t.status === 'Processing');
+    // Items that need an explicit admin/compliance decision beyond the
+    // multi-sig withdrawal queue: processing deposits + pending reinvestments.
+    // Tier-1 "Pending Approvals" card links to the filtered Transactions view.
+    const pendingApprovals = txns.filter(
+      (t) =>
+        (t.type === 'Deposit' && t.status === 'Processing') ||
+        (t.type === 'Reinvest' && (t.status === 'Processing' || t.status === 'Pending')),
+    );
 
     // Platform-wide Profit & Loss managed by admins (§4.4 ledger entry types).
     const totalProfit = ledger.filter((e) => e.entryType === 'profit').reduce((s, e) => s + e.amount, 0);
@@ -164,6 +175,8 @@ router.get(
         fees,
         pendingWithdrawals: pendingWithdrawals.length,
         pendingWithdrawalAmount: pendingWithdrawals.reduce((s, w) => s + w.amount, 0),
+        pendingApprovals: pendingApprovals.length,
+        pendingApprovalAmount: pendingApprovals.reduce((s, t) => s + (t.amount ?? 0), 0),
         processingDeposits: processingDeposits.length,
         transactionCount: txns.length,
         ledgerEntries: ledger.length,
@@ -304,7 +317,7 @@ router.post(
     await addAuditLog(
       id,
       'WITHDRAWAL_AMOUNT_SET',
-      `Available withdrawal set to ${parsed} by ${req.user!.email}`
+      `Available withdrawal set to ${money2(parsed)} by ${req.user!.email}`
     );
     res.json({ userId: id, availableWithdrawal: parsed });
   }
@@ -482,7 +495,7 @@ router.post(
     await addAuditLog(
       id,
       'INVESTMENT_DEPOSIT_SET',
-      `Initial deposit overridden to ${parsed} (plan: ${inv.assignedPlan}) by ${req.user!.email}`
+      `Initial deposit overridden to ${money2(parsed)} (plan: ${inv.assignedPlan}) by ${req.user!.email}`
     );
 
     res.json({
@@ -494,7 +507,7 @@ router.post(
         durationDays: inv.durationDays,
         totalExpectedReturn: inv.totalExpectedReturn,
       },
-      message: `Initial deposit for ${user.email} set to ${parsed} (${inv.assignedPlan} Plan).`,
+      message: `Initial deposit for ${user.email} set to ${money2(parsed)} (${inv.assignedPlan} Plan).`,
     });
   }
 );
@@ -543,9 +556,9 @@ router.post(
     // raises the amount the client can withdraw by the same amount, so the
     // client's dashboard Total Profit and Available Withdrawal match.
     await setAvailableWithdrawal(id, (user.availableWithdrawal ?? 0) + amount);
-    await addAuditLog(id, 'ADMIN_CREDIT_PROFIT', `Admin credited ${amount} ${asset} as PROFIT (${txId}) by ${req.user!.email}. Available withdrawal increased to ${(user.availableWithdrawal ?? 0) + amount}.`);
+    await addAuditLog(id, 'ADMIN_CREDIT_PROFIT', `Admin credited ${money2(amount)} ${asset} as PROFIT (${txId}) by ${req.user!.email}. Available withdrawal increased to ${money2((user.availableWithdrawal ?? 0) + amount)}.`);
 
-    res.status(201).json({ transaction: tx, availableWithdrawal: (user.availableWithdrawal ?? 0) + amount, message: `Credited ${amount} ${asset} to ${user.email} (recorded as profit). Available withdrawal is now ${(user.availableWithdrawal ?? 0) + amount}.` });
+    res.status(201).json({ transaction: tx, availableWithdrawal: (user.availableWithdrawal ?? 0) + amount, message: `Credited ${money2(amount)} ${asset} to ${user.email} (recorded as profit). Available withdrawal is now ${money2((user.availableWithdrawal ?? 0) + amount)}.` });
   }
 );
 
@@ -604,9 +617,9 @@ router.post(
     // amount the client can withdraw (never below 0).
     const newAvailable = Math.max((user.availableWithdrawal ?? 0) - amount, 0);
     await setAvailableWithdrawal(id, newAvailable);
-    await addAuditLog(id, 'ADMIN_DEBIT_LOSS', `Admin debited ${amount} ${asset} as LOSS (${txId}) by ${req.user!.email}. Available withdrawal reduced to ${newAvailable}.`);
+    await addAuditLog(id, 'ADMIN_DEBIT_LOSS', `Admin debited ${money2(amount)} ${asset} as LOSS (${txId}) by ${req.user!.email}. Available withdrawal reduced to ${money2(newAvailable)}.`);
 
-    res.status(201).json({ transaction: tx, availableWithdrawal: newAvailable, message: `Debited ${amount} ${asset} from ${user.email} (recorded as loss). Available withdrawal is now ${newAvailable}.` });
+    res.status(201).json({ transaction: tx, availableWithdrawal: newAvailable, message: `Debited ${money2(amount)} ${asset} from ${user.email} (recorded as loss). Available withdrawal is now ${money2(newAvailable)}.` });
   }
 );
 
@@ -754,11 +767,11 @@ router.post(
       await addAuditLog(
         tx.userId,
         'REINVEST_CONFIRMED',
-        `Reinvestment ${tx.id} approved: ${reinvestAmount} ${tx.asset} moved from profit to initial capital by ${req.user!.email}. ${availableNote}${planNote}`
+        `Reinvestment ${tx.id} approved: ${money2(reinvestAmount)} ${tx.asset} moved from profit to initial capital by ${req.user!.email}. ${availableNote}${planNote}`
       );
       res.json({
         transaction: updated,
-        message: `Reinvestment ${tx.id} approved. ${reinvestAmount} ${tx.asset} of profit added to initial capital and deducted from available withdrawal.${planNote}`,
+        message: `Reinvestment ${tx.id} approved. ${money2(reinvestAmount)} ${tx.asset} of profit added to initial capital and deducted from available withdrawal.${planNote}`,
       });
       return;
     }
@@ -770,11 +783,11 @@ router.post(
     let commissionNote = '';
     for (const c of confirmation.commissions) {
       const referrer = await findUserById(c.earning.referrerUserId);
-      commissionNote += ` Referral commission of ${c.amount} ${tx.asset} credited to ${referrer?.email ?? c.earning.referrerUserId}.`;
+      commissionNote += ` Referral commission of ${money2(c.amount)} ${tx.asset} credited to ${referrer?.email ?? c.earning.referrerUserId}.`;
       await addAuditLog(
         c.earning.referrerUserId,
         'REFERRAL_COMMISSION',
-        `5% referral commission of ${c.amount} ${tx.asset} earned from deposit ${tx.id} by ${tx.userId} (confirmed by ${req.user!.email})`
+        `5% referral commission of ${money2(c.amount)} ${tx.asset} earned from deposit ${tx.id} by ${tx.userId} (confirmed by ${req.user!.email})`
       );
     }
 
@@ -789,9 +802,9 @@ router.post(
       investmentNote = ` Note: below the $${MIN_DEPOSIT} minimum, so no investment plan was assigned.`;
     }
 
-    await addAuditLog(tx.userId, 'DEPOSIT_CONFIRMED', `Deposit ${tx.id} confirmed for ${creditedAmount} ${tx.asset} by ${req.user!.email}.${investmentNote}${commissionNote}`);
+    await addAuditLog(tx.userId, 'DEPOSIT_CONFIRMED', `Deposit ${tx.id} confirmed for ${money2(creditedAmount)} ${tx.asset} by ${req.user!.email}.${investmentNote}${commissionNote}`);
 
-    res.json({ transaction: updated, message: `Deposit ${tx.id} confirmed and credited with ${creditedAmount} ${tx.asset}.${investmentNote}${commissionNote}` });
+    res.json({ transaction: updated, message: `Deposit ${tx.id} confirmed and credited with ${money2(creditedAmount)} ${tx.asset}.${investmentNote}${commissionNote}` });
   }
 );
 
@@ -993,6 +1006,151 @@ router.get(
   requireRole(...STAFF),
   async (req: AuthenticatedRequest, res: Response) => {
     res.json(await getAuditLogs());
+  }
+);
+
+// ---------- Admin notifications ----------
+
+/**
+ * Notification tier a raw audit-log action maps to.
+ * - urgent: a signature/decision is expected from staff
+ * - info:   money moved
+ * - low:    routine noise (still surfaced, quietest styling)
+ * Actions missing from this map produce no notification at all.
+ */
+const NOTIFICATION_PRIORITY: Record<'urgent' | 'info' | 'low', string[]> = {
+  urgent: ['WITHDRAWAL_REQUESTED', 'WITHDRAWAL_APPROVAL', 'KYC_SUBMITTED', 'KYC_STATUS_CHANGED'],
+  info: ['DEPOSIT', 'DEPOSIT_CONFIRMED', 'DEPOSIT_SUBMITTED', 'WITHDRAWAL_EXECUTED', 'ADMIN_CREDIT_PROFIT', 'ADMIN_DEBIT_LOSS'],
+  low: ['LOGIN_SUCCESS'],
+};
+
+const NOTIFICATION_LIMIT = 50;
+
+/** Extracts a transaction id (TX-…) from free-text audit details when present. */
+function txIdFromDetails(details: string): string | null {
+  const m = details.match(/\bTX-[A-Za-z0-9_-]+/);
+  return m ? m[0] : null;
+}
+
+type NotificationTier = 'urgent' | 'info' | 'low';
+
+export interface AdminNotificationItem {
+  id: string;
+  /** Same id shape as GET /admin/audit-logs, so the panel and the full trail agree. */
+  eventId: string;
+  action: string;
+  details: string;
+  tier: NotificationTier;
+  userId: string | null;
+  createdAt: string;
+  read: boolean;
+  /** Deep link rendered by the bell panel (null = no record to jump to). */
+  link: { to: string; label: string } | null;
+}
+
+function tierForAction(action: string): NotificationTier | null {
+  if (NOTIFICATION_PRIORITY.urgent.includes(action)) return 'urgent';
+  if (NOTIFICATION_PRIORITY.info.includes(action)) return 'info';
+  if (NOTIFICATION_PRIORITY.low.includes(action)) return 'low';
+  return null;
+}
+
+/** Click-through target: urgent items land on the queue that owns the decision. */
+function linkForNotification(action: string, details: string): AdminNotificationItem['link'] {
+  const txId = txIdFromDetails(details);
+  if (action === 'WITHDRAWAL_REQUESTED' || action === 'WITHDRAWAL_APPROVAL') {
+    return { to: '/admin/approvals', label: 'Open Approvals' };
+  }
+  if (action === 'WITHDRAWAL_EXECUTED' && txId) {
+    return { to: '/admin/transactions', label: 'Open Transactions' };
+  }
+  if (action === 'KYC_SUBMITTED' || action === 'KYC_STATUS_CHANGED') {
+    return { to: '/admin/accounts?kyc=PENDING', label: 'Review KYC queue' };
+  }
+  if (action.startsWith('ADMIN_')) {
+    return { to: '/admin/audit-logs', label: 'View activity' };
+  }
+  if (action.startsWith('DEPOSIT') && txId) {
+    return { to: '/admin/transactions?status=Processing', label: 'Open Transactions' };
+  }
+  return null;
+}
+
+/**
+ * GET /api/admin/notifications (admin/compliance)
+ * The audit log projected as notifications: tiered, most-recent-first, with
+ * per-admin read state. No new events storage — audit_logs IS the feed.
+ * Query: ?limit (default 50, max 100).
+ */
+router.get(
+  '/notifications',
+  requireRole(...STAFF),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const limit = Math.min(Math.max(Number(req.query.limit) || NOTIFICATION_LIMIT, 1), 100);
+    const adminId = req.user!.id;
+    const [logs, reads] = await Promise.all([
+      getAuditLogs(),
+      getNotificationReads(adminId),
+    ]);
+    const readSet = new Set(reads);
+    const items: AdminNotificationItem[] = [];
+    for (const log of logs) {
+      const tier = tierForAction(log.action);
+      if (!tier) continue;
+      items.push({
+        id: log.id,
+        eventId: log.id,
+        action: log.action,
+        details: log.details,
+        tier,
+        userId: log.userId,
+        createdAt: log.createdAt,
+        read: readSet.has(log.id),
+        link: linkForNotification(log.action, log.details),
+      });
+      if (items.length >= limit) break;
+    }
+    res.json({
+      items,
+      unreadCount: items.filter((i) => !i.read).length,
+    });
+  }
+);
+
+/**
+ * POST /api/admin/notifications/read (admin/compliance)
+ * Marks events seen. Body: { eventIds: string[] } or { all: true } to mark
+ * every notification currently in the feed (pass ?limit semantics via
+ * eventIds from the panel, or all:true which resolves server-side).
+ */
+router.post(
+  '/notifications/read',
+  requireRole(...STAFF),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const adminId = req.user!.id;
+    const { eventIds, all } = (req.body ?? {}) as { eventIds?: unknown; all?: unknown };
+    let ids: string[];
+    if (all === true) {
+      const logs = await getAuditLogs();
+      ids = logs
+        .filter((l) => tierForAction(l.action) !== null)
+        .slice(0, NOTIFICATION_LIMIT)
+        .map((l) => l.id);
+    } else {
+      if (!Array.isArray(eventIds) || eventIds.some((e) => typeof e !== 'string')) {
+        res.status(400).json({ error: 'eventIds must be an array of strings, or pass { all: true }' });
+        return;
+      }
+      ids = (eventIds as string[]).slice(0, 200);
+    }
+    const marked = await markNotificationsRead(adminId, ids);
+    const logs = await getAuditLogs();
+    const readSet = new Set(await getNotificationReads(adminId));
+    const unreadCount = logs
+      .filter((l) => tierForAction(l.action) !== null)
+      .slice(0, NOTIFICATION_LIMIT)
+      .filter((l) => !readSet.has(l.id)).length;
+    res.json({ marked, unreadCount });
   }
 );
 

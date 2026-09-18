@@ -165,6 +165,8 @@ type Store = {
   withdrawalRequests: Map<string, Transaction>;
   investments: Map<string, Investment>;
   referralEarnings: ReferralEarning[];
+  /** Per-admin notification read receipts: "<adminId>:<eventId>". */
+  notificationReads: Set<string>;
 };
 
 const store: Store = {
@@ -179,6 +181,7 @@ const store: Store = {
   withdrawalRequests: new Map(),
   investments: new Map(),
   referralEarnings: [],
+  notificationReads: new Set(),
 };
 
 // ---------- Investments ----------
@@ -389,6 +392,31 @@ export function addAuditLog(userId: string, action: string, details: string): vo
 
 export function getAuditLogs(): AuditLogEntry[] {
   return [...store.auditLogs].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+// ---------- Admin notification reads (per-admin read receipts) ----------
+
+/** Which event ids an admin has already seen (as notifications). */
+export function getNotificationReads(adminId: string): string[] {
+  const prefix = `${adminId}:`;
+  const out: string[] = [];
+  for (const key of store.notificationReads) {
+    if (key.startsWith(prefix)) out.push(key.slice(prefix.length));
+  }
+  return out;
+}
+
+/** Idempotent: marking an already-read event read again is a no-op. Returns newly-read count. */
+export function markNotificationsRead(adminId: string, eventIds: string[]): number {
+  let added = 0;
+  for (const id of eventIds) {
+    const key = `${adminId}:${String(id)}`;
+    if (!store.notificationReads.has(key)) {
+      store.notificationReads.add(key);
+      added += 1;
+    }
+  }
+  return added;
 }
 
 export function addWithdrawalRequest(tx: Transaction): void {

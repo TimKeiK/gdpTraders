@@ -426,6 +426,10 @@ export interface AdminDashboard {
     fees: number;
     pendingWithdrawals: number;
     pendingWithdrawalAmount: number;
+    /** Deposits + reinvestments awaiting an explicit admin/compliance decision. */
+    pendingApprovals: number;
+    /** Combined USD value of the items counted in pendingApprovals. */
+    pendingApprovalAmount: number;
     processingDeposits: number;
     transactionCount: number;
     ledgerEntries: number;
@@ -453,6 +457,26 @@ export interface AuditLogEntryView {
   createdAt: string;
 }
 
+/** A single admin-portal notification, derived from the immutable audit log. */
+export type NotificationTier = 'urgent' | 'info' | 'low';
+
+export interface AdminNotification {
+  id: string;
+  eventId: string;
+  action: string;
+  details: string;
+  tier: NotificationTier;
+  userId: string | null;
+  createdAt: string;
+  read: boolean;
+  link: { to: string; label: string } | null;
+}
+
+export interface AdminNotificationsResponse {
+  items: AdminNotification[];
+  unreadCount: number;
+}
+
 // ---------- Admin API ----------
 
 export const adminApi = {
@@ -478,6 +502,19 @@ export const adminApi = {
 
   async getAuditLogs(): Promise<AuditLogEntryView[]> {
     return request<AuditLogEntryView[]>('/admin/audit-logs');
+  },
+
+  /** Notification feed projected from the audit log (tiered, most-recent-first). */
+  async getNotifications(limit = 50): Promise<AdminNotificationsResponse> {
+    return request<AdminNotificationsResponse>(`/admin/notifications?limit=${limit}`);
+  },
+
+  /** Mark notification events seen: explicit ids, or all currently in the feed. */
+  async markNotificationsRead(eventIds?: string[], all = false): Promise<{ marked: number; unreadCount: number }> {
+    return request<{ marked: number; unreadCount: number }>('/admin/notifications/read', {
+      method: 'POST',
+      body: JSON.stringify(all ? { all: true } : { eventIds: eventIds ?? [] }),
+    });
   },
 
   async setKyc(userId: string, status: string): Promise<{ userId: string; status: string }> {
@@ -588,6 +625,34 @@ export function formatCurrency(value: number, compact = false): string {
     maximumFractionDigits: compact ? 0 : 2,
     notation: compact ? 'compact' : 'standard',
   }).format(value);
+}
+
+/**
+ * Money for humans: always 2 decimals via Intl.NumberFormat — the single
+ * render-side choke point for interpolating a raw number into UI copy
+ * (e.g. 27.619999999999999 → "27.62").
+ */
+export function formatAmount(value: number): string {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return '0.00';
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(v);
+}
+
+/**
+ * Render-side safety net for free-text audit-log details (which embed raw
+ * amounts server-side, e.g. "Available withdrawal increased to
+ * 27.619999999999999"): rounds every standalone decimal run to 2 decimals
+ * at the point of render. Integers are left untouched.
+ */
+export function roundNumbersInText(text: string): string {
+  return text.replace(/-?\d+\.\d+/g, (m) => {
+    const v = Number(m);
+    if (!Number.isFinite(v)) return m;
+    return v.toFixed(2);
+  });
 }
 
 export function formatPercent(value: number | null | undefined): string {

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Users,
   Search,
@@ -12,9 +13,10 @@ import {
   Lock,
   TrendingUp,
   Banknote,
+  ChevronDown,
   X,
 } from 'lucide-react';
-import { adminApi, formatCurrency, type AdminUser } from '../../api/client';
+import { adminApi, formatCurrency, formatAmount, type AdminUser } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import { INVESTMENT_PLANS } from '../../data/plans';
 import './admin.css';
@@ -44,11 +46,17 @@ const PLAN_OPTIONS = INVESTMENT_PLANS.map((p) => ({
 
 export default function AdminAccounts() {
   const { user: me } = useAuth();
+  const [searchParams] = useSearchParams();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
-  const [query, setQuery] = useState('');
+  // Deep-linkable filters: /admin/accounts?kyc=PENDING&q=ada (dashboard cards,
+  // notifications and KYC review links land on a pre-filtered view).
+  const [query, setQuery] = useState(searchParams.get('q') ?? '');
+  const [kycFilter, setKycFilter] = useState(searchParams.get('kyc') ?? '');
   const [busyId, setBusyId] = useState('');
+  // Demoted columns live in an expandable row instead of the default view.
+  const [expandedId, setExpandedId] = useState('');
 
   // Manual deposit modal state
   const [depositFor, setDepositFor] = useState<AdminUser | null>(null);
@@ -98,15 +106,22 @@ export default function AdminAccounts() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter(
-      (u) =>
+    return users.filter((u) => {
+      if (kycFilter && u.kycStatus !== kycFilter) return false;
+      if (!q) return true;
+      return (
         u.name.toLowerCase().includes(q) ||
         u.email.toLowerCase().includes(q) ||
         u.role.includes(q) ||
-        u.id.toLowerCase().includes(q),
-    );
-  }, [users, query]);
+        u.id.toLowerCase().includes(q)
+      );
+    });
+  }, [users, query, kycFilter]);
+
+  /** Row click handler — the Actions cell stops propagation so buttons still work. */
+  const toggleExpanded = (id: string) => {
+    setExpandedId((current) => (current === id ? '' : id));
+  };
 
   const setKyc = async (u: AdminUser, status: string) => {
     if (busyId) return;
@@ -167,7 +182,7 @@ export default function AdminAccounts() {
     setDebErr('');
     try {
       await adminApi.manualDebit(debitFor.id, debAsset, amount, debNote || undefined);
-      setMsg(`Debited ${amount} ${debAsset} from ${debitFor.email} (recorded as loss)`);
+      setMsg(`Debited $${formatAmount(amount)} ${debAsset} from ${debitFor.email} (recorded as loss)`);
       setDebitFor(null);
       load();
     } catch (e) {
@@ -188,7 +203,7 @@ export default function AdminAccounts() {
     setDepErr('');
     try {
       await adminApi.manualDeposit(depositFor.id, depAsset, amount, depNote || undefined);
-      setMsg(`Credited ${amount} ${depAsset} to ${depositFor.email}`);
+      setMsg(`Credited $${formatAmount(amount)} ${depAsset} to ${depositFor.email}`);
       setDepositFor(null);
       load();
     } catch (e) {
@@ -294,149 +309,222 @@ export default function AdminAccounts() {
         <div className="admin-search">
           <Search size={16} style={{ color: 'var(--gray-400)' }} />
           <input
-            placeholder="Search name, email, role, or ID…"
+            placeholder="Search name, email, role or ID"
+            aria-label="Search accounts"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <div style={{ fontSize: 13, color: 'var(--gray-400)' }}>
-          <Users size={14} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />
-          {filtered.length} account{filtered.length === 1 ? '' : 's'}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {kycFilter && (
+            <span className="admin-filter-chip">
+              KYC: {kycFilter}
+              <button onClick={() => setKycFilter('')} title="Clear KYC filter" aria-label="Clear KYC filter">
+                <X size={13} />
+              </button>
+            </span>
+          )}
+          <select
+            className="admin-select"
+            value={kycFilter}
+            onChange={(e) => setKycFilter(e.target.value)}
+            title="Filter by KYC status"
+          >
+            <option value="">All KYC statuses</option>
+            {['PENDING', 'SUBMITTED', 'APPROVED', 'REJECTED'].map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+          <div style={{ fontSize: 13, color: 'var(--gray-400)' }}>
+            <Users size={14} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />
+            {filtered.length} account{filtered.length === 1 ? '' : 's'}
+          </div>
         </div>
       </div>
 
       <div className="admin-card">
         <div className="admin-table-wrap">
-          <table className="admin-table">
+          <table className="admin-table table-accounts">
             <thead>
               <tr>
                 <th>Account</th>
-                <th>Referral</th>
                 <th>Role</th>
-                <th>KYC</th>
+                <th>KYC status</th>
                 <th>Balance</th>
-                <th>P&amp;L (Net)</th>
-                <th>Deposits</th>
-                <th>Withdrawals</th>
-                <th>Pending</th>
-                <th>Actions</th>
+                <th className="admin-col-actions">Actions</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={10} className="admin-empty">No accounts match your search.</td></tr>
-              )}
-              {filtered.map((u) => (
-                <tr key={u.id}>
-                  <td>
-                    <div><strong>{u.name}</strong></div>
-                    <div className="mono" style={{ color: 'var(--gray-400)' }}>{u.email}</div>
-                    <div className="mono" style={{ color: 'var(--gray-500)', fontSize: 11 }}>{u.id}</div>
-                  </td>
-                  <td style={{ fontSize: 12 }}>
-                    {u.referredBy ? (
-                      <div title={`Referred by ${u.referredBy.name} (${u.referredBy.id})`}>
-                        <span style={{ color: 'var(--gray-400)' }}>by </span>
-                        <span className="mono">{u.referredBy.email}</span>
-                      </div>
-                    ) : (
-                      <span style={{ color: 'var(--gray-500)' }}>—</span>
-                    )}
-                    {(u.referredCount ?? 0) > 0 && (
-                      <div style={{ color: 'var(--gray-400)' }}>
-                        referred {u.referredCount} client{u.referredCount === 1 ? '' : 's'}
-                      </div>
-                    )}
-                  </td>
-                  <td><span className={`admin-pill ${ROLE_PILL[u.role] || 'pill-gray'}`}>{u.role}</span></td>
-                  <td><span className={`admin-pill ${KYC_PILL[u.kycStatus] || 'pill-gray'}`}>{u.kycStatus}</span></td>
-                  <td>
-                    <strong>{formatCurrency(u.balance)}</strong>
-                    <div style={{ fontSize: 11, color: 'var(--gray-400)' }}>
-                      <Lock size={11} style={{ verticalAlign: 'text-bottom', marginRight: 3 }} />
-                      avail. wd: <span className="pos">{formatCurrency(u.availableWithdrawal)}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <div><strong className={u.netPnl >= 0 ? 'pos' : 'neg'}>{formatCurrency(u.netPnl)}</strong></div>
-                    <div style={{ fontSize: 11, color: 'var(--gray-400)' }}>
-                      <span className="pos">+{formatCurrency(u.totalProfit)}</span>
-                      {' / '}
-                      <span className="neg">-{formatCurrency(u.totalLoss)}</span>
-                    </div>
-                  </td>
-                  <td>{formatCurrency(u.deposits)}</td>
-                  <td>{formatCurrency(u.withdrawals)}</td>
-                  <td>
-                    {u.processingDeposits > 0 && (
-                      <div style={{ color: 'var(--purple)' }}>{u.processingDeposits} deposit</div>
-                    )}
-                    {u.pendingWithdrawals.length > 0 && (
-                      <div style={{ color: 'var(--amber)' }}>{u.pendingWithdrawals.length} withdrawal</div>
-                    )}
-                    {u.processingDeposits === 0 && u.pendingWithdrawals.length === 0 && (
-                      <span style={{ color: 'var(--gray-500)' }}>—</span>
-                    )}
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      <select
-                        className="admin-select"
-                        value={u.kycStatus}
-                        onChange={(e) => setKyc(u, e.target.value)}
-                        disabled={busyId === u.id}
-                        title="Change KYC status"
-                      >
-                        {['APPROVED', 'PENDING', 'SUBMITTED', 'REJECTED'].map((s) => (
-                          <option key={s} value={s}>{s}</option>
-                        ))}
-                      </select>
-
-                      {me?.role === 'admin' ? (
-                        <select
-                          className="admin-select"
-                          value={u.role}
-                          onChange={(e) => setRole(u, e.target.value)}
-                          disabled={busyId === u.id}
-                          title="Change role"
-                        >
-                          {['client', 'compliance', 'admin'].map((r) => (
-                            <option key={r} value={r}>{r}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="admin-pill pill-gray" style={{ marginRight: 4 }}>
-                          <UserCog size={13} /> staff only
-                        </span>
-                      )}
-
-                      {isStaff(u.role) ? (
-                        <span className="admin-pill pill-gray">
-                          <ShieldCheck size={13} /> staff account
-                        </span>
-                      ) : (
-                        <>
-                          <button className="admin-btn green" onClick={() => openDeposit(u)} title="Credit funds (recorded as profit)">
-                            <DollarSign size={14} /> Credit
-                          </button>
-                          <button className="admin-btn red" onClick={() => openDebit(u)} title="Debit funds (recorded as loss)">
-                            <Minus size={14} /> Debit
-                          </button>
-                          <button className="admin-btn" onClick={() => openWithdraw(u)} title="Set how much this client can withdraw">
-                            <Lock size={14} /> Withdrawal
-                          </button>
-                          <button className="admin-btn" onClick={() => openPlan(u)} title="Change or set this client's investment plan (reflects on their dashboard)">
-                            <TrendingUp size={14} /> Plan
-                          </button>
-                          <button className="admin-btn" onClick={() => openInitDeposit(u)} title="Change this client's initial deposit (reflects on their dashboard)">
-                            <Banknote size={14} /> Deposit
-                          </button>
-                        </>
-                      )}
-                    </div>
+                <tr>
+                  <td colSpan={5} className="admin-empty">
+                    No accounts match your search{kycFilter ? ` (KYC ${kycFilter})` : ''}.
                   </td>
                 </tr>
-              ))}
+              )}
+              {filtered.map((u) => {
+                const expanded = expandedId === u.id;
+                return (
+                  <Fragment key={u.id}>
+                    <tr
+                      className={`admin-row-expandable ${expanded ? 'expanded' : ''}`}
+                      onClick={() => toggleExpanded(u.id)}
+                      aria-expanded={expanded}
+                      title="Click to view referral, P&L, deposits, withdrawals and pending items"
+                    >
+                      <td>
+                        <div className="admin-account-cell">
+                          <span className={`admin-expand-caret ${expanded ? 'open' : ''}`}>
+                            <ChevronDown size={15} />
+                          </span>
+                          <div>
+                            <div className="admin-account-name">{u.name}</div>
+                            <div className="mono admin-account-email">{u.email}</div>
+                            <div className="mono admin-account-id">{u.id}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td><span className={`admin-pill ${ROLE_PILL[u.role] || 'pill-gray'}`}>{u.role}</span></td>
+                      <td><span className={`admin-pill ${KYC_PILL[u.kycStatus] || 'pill-gray'}`}>{u.kycStatus}</span></td>
+                      <td>
+                        <strong>{formatCurrency(u.balance)}</strong>
+                        <div style={{ fontSize: 11, color: 'var(--gray-400)' }}>
+                          <Lock size={11} style={{ verticalAlign: 'text-bottom', marginRight: 3 }} />
+                          avail. wd: <span className="pos">{formatCurrency(u.availableWithdrawal)}</span>
+                        </div>
+                      </td>
+                      <td className="admin-col-actions" onClick={(e) => e.stopPropagation()}>
+                        <div className="admin-actions-group">
+                          <select
+                            className="admin-select"
+                            value={u.kycStatus}
+                            onChange={(e) => setKyc(u, e.target.value)}
+                            disabled={busyId === u.id}
+                            title="Change KYC status"
+                          >
+                            {['APPROVED', 'PENDING', 'SUBMITTED', 'REJECTED'].map((s) => (
+                              <option key={s} value={s}>{s}</option>
+                            ))}
+                          </select>
+    
+                          {me?.role === 'admin' ? (
+                            <select
+                              className="admin-select"
+                              value={u.role}
+                              onChange={(e) => setRole(u, e.target.value)}
+                              disabled={busyId === u.id}
+                              title="Change role"
+                            >
+                              {['client', 'compliance', 'admin'].map((r) => (
+                                <option key={r} value={r}>{r}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <span className="admin-pill pill-gray" style={{ marginRight: 4 }}>
+                              <UserCog size={13} /> staff only
+                            </span>
+                          )}
+    
+                          {isStaff(u.role) ? (
+                            <span className="admin-pill pill-gray">
+                              <ShieldCheck size={13} /> staff account
+                            </span>
+                          ) : (
+                            <>
+                              <button className="admin-btn green" onClick={() => openDeposit(u)} title="Credit funds (recorded as profit)">
+                                <DollarSign size={14} /> Credit
+                              </button>
+                              <button className="admin-btn red" onClick={() => openDebit(u)} title="Debit funds (recorded as loss)">
+                                <Minus size={14} /> Debit
+                              </button>
+                              <button className="admin-btn" onClick={() => openWithdraw(u)} title="Set how much this client can withdraw">
+                                <Lock size={14} /> Withdrawal
+                              </button>
+                              <button className="admin-btn" onClick={() => openPlan(u)} title="Change or set this client's investment plan (reflects on their dashboard)">
+                                <TrendingUp size={14} /> Plan
+                              </button>
+                              <button className="admin-btn" onClick={() => openInitDeposit(u)} title="Change this client's initial deposit (reflects on their dashboard)">
+                                <Banknote size={14} /> Deposit
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+
+                    {expanded && (
+                      <tr className="admin-detail-row">
+                        <td colSpan={5}>
+                          <div className="admin-detail-grid">
+                            <div>
+                              <div className="admin-detail-label"><Users size={12} /> Referral</div>
+                              <div className="admin-detail-value">
+                                {u.referredBy ? (
+                                  <>
+                                    <span style={{ color: 'var(--gray-400)' }}>by </span>
+                                    <span className="mono">{u.referredBy.email}</span>
+                                  </>
+                                ) : (
+                                  <span style={{ color: 'var(--gray-500)' }}>Not referred</span>
+                                )}
+                                {(u.referredCount ?? 0) > 0 && (
+                                  <div style={{ color: 'var(--gray-400)' }}>
+                                    referred {u.referredCount} client{u.referredCount === 1 ? '' : 's'}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <div>
+                              <div className="admin-detail-label"><TrendingUp size={12} /> P&amp;L (Net)</div>
+                              <div className="admin-detail-value">
+                                <strong className={u.netPnl >= 0 ? 'pos' : 'neg'}>{formatCurrency(u.netPnl)}</strong>
+                                <div style={{ fontSize: 11.5, color: 'var(--gray-400)' }}>
+                                  <span className="pos">+{formatCurrency(u.totalProfit)}</span>
+                                  {' / '}
+                                  <span className="neg">-{formatCurrency(u.totalLoss)}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div>
+                              <div className="admin-detail-label"><DollarSign size={12} /> Deposits</div>
+                              <div className="admin-detail-value">{formatCurrency(u.deposits)}</div>
+                            </div>
+
+                            <div>
+                              <div className="admin-detail-label"><Banknote size={12} /> Withdrawals</div>
+                              <div className="admin-detail-value">{formatCurrency(u.withdrawals)}</div>
+                            </div>
+
+                            <div>
+                              <div className="admin-detail-label"><AlertCircle size={12} /> Pending</div>
+                              <div className="admin-detail-value">
+                                {u.processingDeposits > 0 && (
+                                  <div style={{ color: 'var(--purple)' }}>
+                                    {u.processingDeposits} deposit{u.processingDeposits === 1 ? '' : 's'} awaiting confirmation
+                                  </div>
+                                )}
+                                {u.pendingWithdrawals.length > 0 && (
+                                  <div style={{ color: 'var(--amber)' }}>
+                                    {u.pendingWithdrawals.length} withdrawal{u.pendingWithdrawals.length === 1 ? '' : 's'}
+                                    {' · '}
+                                    {formatCurrency(u.pendingWithdrawals.reduce((sum, w) => sum + w.amount, 0))}
+                                  </div>
+                                )}
+                                {u.processingDeposits === 0 && u.pendingWithdrawals.length === 0 && (
+                                  <span style={{ color: 'var(--gray-500)' }}>Nothing pending</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ScrollText, AlertCircle } from 'lucide-react';
-import { adminApi, type AuditLogEntryView } from '../../api/client';
+import { adminApi, roundNumbersInText, type AuditLogEntryView } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import './admin.css';
 
@@ -66,7 +66,7 @@ export default function AdminAuditLogs() {
                   <td className="mono">{new Date(l.createdAt).toLocaleString()}</td>
                   <td className="mono">{l.userId}</td>
                   <td><span className={`admin-pill ${ACTION_PILL[l.action] || 'pill-gray'}`}>{l.action}</span></td>
-                  <td>{l.details}</td>
+                  <td>{roundNumbersInText(l.details)}</td>
                 </tr>
               ))}
             </tbody>
