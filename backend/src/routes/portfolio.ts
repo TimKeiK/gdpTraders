@@ -7,6 +7,7 @@ import {
   findUserById,
 } from '../db/index.js';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
+import { completedReinvestIds, isReinvestMove } from '../lib/reinvest.js';
 
 const router = Router();
 
@@ -21,7 +22,10 @@ router.use(requireAuth);
  */
 router.get('/summary', async (req: AuthenticatedRequest, res: Response) => {
   const userId = req.userId!;
-  const ledger = await getLedgerForUser(userId);
+  const [ledger, transactions] = await Promise.all([
+    getLedgerForUser(userId),
+    getTransactionsForUser(userId),
+  ]);
 
   // Portfolio value is derived from the immutable ledger so that every
   // completed deposit/withdrawal/trade is reflected automatically.
@@ -47,18 +51,26 @@ router.get('/summary', async (req: AuthenticatedRequest, res: Response) => {
     .reduce((sum, entry) => sum + entry.amount, 0);
 
   // Total P&L = sum of all trading activity + admin-managed profit/loss.
-  // Excludes deposits and withdrawals.
-  const totalPnl = tradingPnl;
+  // Excludes deposits and withdrawals (and reinvestment bucket moves, below).
 
   // Admin-managed Profit & Loss breakdown:
   // - every admin CREDIT is a 'profit' ledger entry (positive amount)
   // - every admin DEBIT is a 'loss' ledger entry (negative amount)
-  const totalProfit = pnlEntries.reduce((sum, entry) => sum + Math.max(entry.amount, 0), 0);
-  const totalLoss = pnlEntries.reduce((sum, entry) => sum + Math.abs(Math.min(entry.amount, 0)), 0);
+  // A confirmed reinvestment also writes a +deposit (cost basis up) and a
+  // balancing −trade entry; counting that negative entry as a LOSS would make
+  // the dashboard report a loss the client never suffered. Reinvestment
+  // entries are BUCKET MOVES (portfolio value is unaffected by them), so they
+  // are excluded from the P&L breakdown below while still netting to zero in
+  // totalValue.
+  const reinvestIds = completedReinvestIds(transactions);
+  const pnlBreakdown = pnlEntries.filter((entry) => !isReinvestMove(entry, reinvestIds));
+
+  const totalProfit = pnlBreakdown.reduce((sum, entry) => sum + Math.max(entry.amount, 0), 0);
+  const totalLoss = pnlBreakdown.reduce((sum, entry) => sum + Math.abs(Math.min(entry.amount, 0)), 0);
 
   const user = await findUserById(userId);
 
-  const totalPnlPercent = costBasis !== 0 ? (totalPnl / costBasis) * 100 : 0;
+  const totalPnlPercent = costBasis !== 0 ? ((totalProfit - totalLoss) / costBasis) * 100 : 0;
   // Yield of the passive income itself (gross profit ÷ deposits). Quoted next
   // to totalProfit so dollar figures and percentages always describe the same
   // number (totalPnlPercent is NET and can diverge when trades lose money).
@@ -67,11 +79,14 @@ router.get('/summary', async (req: AuthenticatedRequest, res: Response) => {
 
   res.json({
     totalValue,
-    totalPnl, // Actual profit/loss (admin-managed credits/debits + trading activity; excludes deposits)
+    // Actual P&L (admin profit/loss + trading activity). Reinvestment bucket
+    // moves are excluded — they are neither income nor expense.
+    totalPnl: totalProfit - totalLoss,
     totalProfit,
     totalLoss,
     netPnl: totalProfit - totalLoss,
-    // Initial capital = total deposits made by the client (cost basis).
+    // Initial capital = total deposits made by the client (cost basis),
+    // including profit the client reinvested into capital.
     initialDeposit: costBasis,
     // Admin-set withdrawable amount (from the initial deposit + profit).
     availableWithdrawal: user?.availableWithdrawal ?? 0,

@@ -17,6 +17,7 @@ import {
   maturityAction,
   maturedBeforeCutover,
   storedDateYmd,
+  investmentTermSummary,
 } from './accrual.js';
 
 test('isBusinessDay excludes weekends', () => {
@@ -63,6 +64,27 @@ test('computeDailyAccruals $20 Bronze example: 3% = $0.60 every business day', (
 test('computeDailyAccruals rounding is stable at 2 decimals', () => {
   const steps = computeDailyAccruals({ principal: 100.0, dailyRatePercent: 3, dates: ['2026-09-14', '2026-09-15'] });
   for (const s of steps) assert.equal(round2(s.amount), s.amount);
+});
+
+test('computeDailyAccruals continues the running balance after a reinvestment', () => {
+  // A client deposited 1000 (5%/day = $50) and already accrued 10 days, so the
+  // persisted current_value is 1500. They then reinvest 500 of profit into
+  // capital: the deposit becomes 1500 (5% = $75/day) and the next credited days
+  // must continue from 1500 — NOT reset to 1500 + 75 (which would drop the
+  // previously accrued profit from the displayed current value).
+  const steps = computeDailyAccruals({
+    principal: 1500,
+    dailyRatePercent: 5,
+    dates: ['2026-09-18', '2026-09-21'],
+    startingBalance: 1500,
+  });
+  assert.equal(steps[0].amount, 75); // rate follows the NEW deposit
+  assert.equal(steps[0].balanceAfter, 1575);
+  assert.equal(steps[1].balanceAfter, 1650);
+
+  // Default behaviour is unchanged for a fresh plan (no startingBalance).
+  const fresh = computeDailyAccruals({ principal: 500, dailyRatePercent: 5, dates: ['2026-09-18'] });
+  assert.equal(fresh[0].balanceAfter, 525);
 });
 
 test('toYmd returns UTC date string', () => {
@@ -261,4 +283,77 @@ test('maturedBeforeCutover only flags active rows matured strictly before the cu
   assert.equal(maturedBeforeCutover({ endYmd: '2026-09-21', cutoverYmd, status: 'active' }), false);
   // No plan snapshot → not our concern here.
   assert.equal(maturedBeforeCutover({ endYmd: null, cutoverYmd, status: 'active' }), false);
+});
+
+test('investmentTermSummary keeps the agreed term and an honest payout after a reinvest', () => {
+  // $2,400 Diamond (7%/day, 150 working days) deposited Mon 2026-01-05; the plan
+  // matures Fri 2027-02-05 = 283 working days later.
+  const startYmd = '2026-01-05';
+  const endYmd = '2027-02-05';
+  const todayYmd = '2026-09-21'; // reinvest happens mid-term, long before maturity
+
+  const term = investmentTermSummary({
+    startYmd,
+    endYmd,
+    todayYmd,
+    deposit: 2600, // 2,400 + 200 reinvested profit → Gold tier (10%/day)
+    dailyRatePercent: 10,
+    alreadyCreditedProfit: 500,
+  });
+
+  // The term is the REAL one (283 business days), never the new tier's nominal
+  // 200 working days — otherwise the dashboard would promise a longer plan.
+  assert.equal(term.termDays, 283);
+  assert.equal(term.remainingDays, 99);
+  // Already credited (500) + deposit (2600) + 2600 × 10% × 99 remaining days.
+  assert.equal(term.expectedTotalReturn, 500 + 2600 + 25740);
+
+  // Reinvesting on the deposit day itself leaves the full term to run.
+  const dayOne = investmentTermSummary({
+    startYmd,
+    endYmd,
+    todayYmd: startYmd,
+    deposit: 2600,
+    dailyRatePercent: 10,
+    alreadyCreditedProfit: 0,
+  });
+  assert.equal(dayOne.remainingDays, term.termDays);
+  assert.equal(dayOne.expectedTotalReturn, 2600 + 283 * 260);
+
+  // On the maturity day itself the final day STILL accrues (the engine credits
+  // that day's profit and releases the principal), so exactly one day remains.
+  const onMaturityDay = investmentTermSummary({
+    startYmd,
+    endYmd,
+    todayYmd: endYmd,
+    deposit: 2600,
+    dailyRatePercent: 10,
+    alreadyCreditedProfit: 500,
+  });
+  assert.equal(onMaturityDay.remainingDays, 1);
+  assert.equal(onMaturityDay.expectedTotalReturn, 500 + 2600 + 260);
+
+  // The day after maturity nothing is left to accrue: profit + deposit only.
+  const afterMaturity = investmentTermSummary({
+    startYmd,
+    endYmd,
+    todayYmd: '2027-02-06',
+    deposit: 2600,
+    dailyRatePercent: 10,
+    alreadyCreditedProfit: 500,
+  });
+  assert.equal(afterMaturity.remainingDays, 0);
+  assert.equal(afterMaturity.expectedTotalReturn, 3100);
+
+  // An inverted range (end before start) degrades to zero instead of going negative.
+  const broken = investmentTermSummary({
+    startYmd: endYmd,
+    endYmd: startYmd,
+    todayYmd,
+    deposit: 100,
+    dailyRatePercent: 3,
+  });
+  assert.equal(broken.termDays, 0);
+  assert.equal(broken.remainingDays, 0);
+  assert.equal(broken.expectedTotalReturn, 100);
 });

@@ -206,6 +206,16 @@ export default function DepositPage() {
       setReinvestMsg({ ok: false, text: 'Please enter the profit amount you wish to reinvest.' });
       return;
     }
+    // Server is authoritative; this only avoids a round trip for the cap the
+    // client already sees (their available withdrawal).
+    const cap = reinvestSummary?.reinvestable ?? 0;
+    if (parsed > cap + 1e-9) {
+      setReinvestMsg({
+        ok: false,
+        text: `You can reinvest up to ${formatCurrency(cap)} — your available withdrawal.`,
+      });
+      return;
+    }
     setReinvestLoading(true);
     setReinvestMsg(null);
     try {
@@ -590,22 +600,32 @@ export default function DepositPage() {
             <h3 className="dash-section-title" style={{ margin: 0 }}>Reinvest Profit</h3>
           </div>
           <p style={{ fontSize: 13, color: 'var(--gray-400)', lineHeight: 1.6, margin: '0 0 16px' }}>
-            Made a profit? Move part of it into your initial capital to grow your investment plan.
+            Move part of your available withdrawal into your initial capital to grow your investment plan.
             Reinvestments are credited only after an admin approves the request — just like a deposit.
           </p>
 
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
             <div style={{ flex: 1, minWidth: 140 }}>
-              <div style={{ fontSize: 11, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: 1 }}>Available Profit</div>
+              <div style={{ fontSize: 11, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: 1 }}>Available to Reinvest</div>
               <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--green)' }}>
-                {formatCurrency(reinvestSummary?.availableProfit ?? 0)}
+                {formatCurrency(reinvestSummary?.reinvestable ?? 0)}
               </div>
+            </div>
+            <div style={{ flex: 1, minWidth: 140 }}>
+              <div style={{ fontSize: 11, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: 1 }}>Available Profit</div>
+              <div style={{ fontSize: 20, fontWeight: 700 }}>{formatCurrency(reinvestSummary?.availableProfit ?? 0)}</div>
             </div>
             <div style={{ flex: 1, minWidth: 140 }}>
               <div style={{ fontSize: 11, color: 'var(--gray-400)', textTransform: 'uppercase', letterSpacing: 1 }}>Already Reinvested</div>
               <div style={{ fontSize: 20, fontWeight: 700 }}>{formatCurrency(reinvestSummary?.reinvested ?? 0)}</div>
             </div>
           </div>
+          {reinvestSummary != null && reinvestSummary.reservedForReinvest > 0 && (
+            <p style={{ fontSize: 12, color: 'var(--gray-400)', lineHeight: 1.5, margin: '0 0 16px' }}>
+              {formatCurrency(reinvestSummary.reservedForReinvest)} of your {formatCurrency(reinvestSummary.availableWithdrawal)} available
+              withdrawal is reserved for a reinvestment awaiting approval.
+            </p>
+          )}
 
           <form onSubmit={handleReinvest}>
             <div className="form-group">
@@ -615,11 +635,12 @@ export default function DepositPage() {
                 type="number"
                 inputMode="decimal"
                 min="0"
+                max={reinvestSummary?.reinvestable ?? undefined}
                 step="any"
                 placeholder="e.g. 250"
                 value={reinvestAmount}
                 onChange={(e) => setReinvestAmount(e.target.value)}
-                disabled={reinvestLoading || (reinvestSummary?.availableProfit ?? 0) <= 0}
+                disabled={reinvestLoading || (reinvestSummary?.reinvestable ?? 0) <= 0}
                 style={{ fontSize: '16px', height: '50px' }}
               />
             </div>
@@ -631,7 +652,7 @@ export default function DepositPage() {
             <button
               type="submit"
               className="btn btn-primary"
-              disabled={reinvestLoading || (reinvestSummary?.availableProfit ?? 0) <= 0}
+              disabled={reinvestLoading || (reinvestSummary?.reinvestable ?? 0) <= 0}
               style={{ width: '100%', justifyContent: 'center', padding: '13px' }}
             >
               {reinvestLoading ? <Loader size={16} className="spin" /> : <TrendingUp size={16} />}

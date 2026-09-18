@@ -123,7 +123,16 @@ export async function runInvestmentAccrual(
     // DEPOSIT, never from the running balance. `balanceAfter` (deposit +
     // cumulative profit) is only persisted for display.
     const principal = inv.initialDeposit as number;
-    const steps = computeDailyAccruals({ principal, dailyRatePercent: rate, dates: candidates });
+    // Continue the displayed running total from what is already persisted, so a
+    // mid-term capital increase (profit reinvestment / admin deposit change)
+    // does not erase the profit accrued before it from `current_value`.
+    const startingBalance = Math.max(inv.currentValue ?? principal, principal);
+    const steps = computeDailyAccruals({
+      principal,
+      dailyRatePercent: rate,
+      dates: candidates,
+      startingBalance,
+    });
 
     let accruedDays = processed.size;
 

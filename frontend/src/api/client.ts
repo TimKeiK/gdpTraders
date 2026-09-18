@@ -33,11 +33,24 @@ export interface StrategyAllocation {
   pnl24h: number;
 }
 
-/** Client's un-reinvested profit summary and reinvestment history. */
+/** Client's reinvestment summary and request history. */
 export interface ReinvestSummary {
   totalProfit: number;
   totalLoss: number;
   reinvested: number;
+  /** The client's available withdrawal — the ONE bucket for both actions. */
+  availableWithdrawal: number;
+  /** Available withdrawal not already committed to a pending reinvestment. */
+  withdrawable: number;
+  /**
+   * What the client can reinvest right now. Identical to their available
+   * withdrawal (minus any pending request), so the deposit section shows the
+   * same figure as the withdrawal flow.
+   */
+  reinvestable: number;
+  /** Amount held by reinvestment requests still awaiting admin approval. */
+  reservedForReinvest: number;
+  /** Profit earned but not yet moved to capital (informational). */
   availableProfit: number;
   reinvestments: { id: string; date: string; amount: number; status: string }[];
 }

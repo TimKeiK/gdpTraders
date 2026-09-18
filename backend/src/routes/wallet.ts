@@ -19,6 +19,14 @@ import { requireAuth, requireKycApproved, requireRole, type AuthenticatedRequest
 import { SUPPORTED_ASSETS } from '../data/strategies.js';
 import { getPlanByAmount, addWorkingDays, computeExpectedReturn, workingDaysBetween, MIN_DEPOSIT } from '../data/plans.js';
 import { addInvestment, getActiveInvestmentForUser, type Investment } from '../db/index.js';
+import {
+  availableProfit as computeAvailableProfit,
+  committedReinvestTotal,
+  pendingReinvestReserved,
+  reinvestableAmount,
+  round2 as roundMoney,
+  uncommittedWithdrawable,
+} from '../lib/reinvest.js';
 
 // ---- Card payment processing ---------------------------------------------
 // Deposits are card-only. Real card charges are processed by Stripe's
@@ -478,9 +486,14 @@ router.post('/crypto-deposit', requireKycApproved, async (req: AuthenticatedRequ
  * deposit: it creates a pending 'Reinvest' transaction which an admin must
  * confirm before the amount moves from profit to capital.
  *
- * Server-side validation guarantees the amount never exceeds the client's
- * un-reinvested admin-credited profit:
- *   availableProfit = total profit credits - total loss debits - prior reinvestments
+ * Nothing leaves `available_withdrawal` until an admin approves, so the request
+ * is only accepted when the amount fits BOTH buckets (see lib/reinvest.ts):
+ *   - un-reinvested profit:  profit − loss − reinvested (pending + completed)
+ *   - un-committed withdrawable balance:  available_withdrawal − pending requests
+ *
+ * The second cap is what prevents the same money being withdrawn AND
+ * reinvested: an executed withdrawal lowers `available_withdrawal` while the
+ * ledger profit stays, so profit alone is not a safe limit.
  *
  * Body: { amount }
  */
@@ -494,21 +507,33 @@ router.post('/reinvest-profit', requireKycApproved, async (req: AuthenticatedReq
     return;
   }
 
-  // Available profit = admin-credited profit − admin debits (losses) −
-  // profit already moved to capital by earlier reinvestments (pending or
-  // approved — a pending request reserves its amount). Withdrawals do not
-  // reduce it (they draw from availableWithdrawal, set by an admin).
+  // The withdrawable balance is admin/accrual-managed; read it fresh so a stale
+  // JWT payload can never widen the limit.
+  const freshUser = await findUserById(user.id);
+  const availableWithdrawal = freshUser?.availableWithdrawal ?? user.availableWithdrawal ?? 0;
+
   const [ledger, transactions] = await Promise.all([getLedgerForUser(user.id), getTransactionsForUser(user.id)]);
   const profit = ledger.filter((e) => e.entryType === 'profit').reduce((s, e) => s + e.amount, 0);
   const loss = ledger.filter((e) => e.entryType === 'loss').reduce((s, e) => s + Math.abs(e.amount), 0);
-  const reinvested = transactions
-    .filter((t) => t.type === 'Reinvest' && t.status !== 'Cancelled')
-    .reduce((s, t) => s + t.amount, 0);
-  const availableProfit = profit - loss - reinvested;
+  const reinvested = committedReinvestTotal(transactions);
+  const reservedForReinvest = pendingReinvestReserved(transactions);
 
-  if (parsedAmount > availableProfit + 1e-9) {
+  const unReinvestedProfit = computeAvailableProfit({ profit, loss, reinvested });
+  const withdrawable = uncommittedWithdrawable({ availableWithdrawal, reservedForReinvest });
+  const reinvestable = reinvestableAmount({ availableWithdrawal, reservedForReinvest });
+
+  if (parsedAmount > reinvestable + 1e-9) {
+    // The cap is the client's AVAILABLE WITHDRAWAL (the same figure the deposit
+    // section shows), minus anything already committed to a pending request.
+    const detail =
+      reservedForReinvest > 0
+        ? ` ${reservedForReinvest.toLocaleString(undefined, { maximumFractionDigits: 2 })} USD of it is reserved for a reinvestment already awaiting approval.`
+        : '';
     res.status(400).json({
-      error: `You only have ${Math.max(availableProfit, 0).toLocaleString(undefined, { maximumFractionDigits: 2 })} USD of un-reinvested profit available to reinvest.`,
+      error: `You can reinvest up to ${reinvestable.toLocaleString(undefined, { maximumFractionDigits: 2 })} USD — your available withdrawal.${detail}`,
+      availableWithdrawal: withdrawable,
+      availableProfit: unReinvestedProfit,
+      reinvestable,
     });
     return;
   }
@@ -527,22 +552,33 @@ router.post('/reinvest-profit', requireKycApproved, async (req: AuthenticatedReq
     requiresApproval: true,
   };
   await addTransaction(tx);
-  await addAuditLog(user.id, 'REINVEST_REQUESTED', `Client requested to reinvest ${parsedAmount} USD of profit into capital (${txId})`);
+  await addAuditLog(
+    user.id,
+    'REINVEST_REQUESTED',
+    `Client requested to reinvest ${parsedAmount} USD into capital (${txId}). ` +
+      `Reserved against available withdrawal ${availableWithdrawal} (reinvestable ${reinvestable}, un-reinvested profit ${unReinvestedProfit}).`,
+  );
 
   res.status(201).json({
     transaction: tx,
-    availableProfit: Math.max(availableProfit - parsedAmount, 0),
+    availableProfit: roundMoney(unReinvestedProfit - parsedAmount),
+    reinvestable: roundMoney(reinvestable - parsedAmount),
     message: 'Reinvestment request submitted. It will be credited to your initial capital once an admin approves it.',
   });
 });
 
 /**
  * GET /api/wallet/reinvest-profit
- * Client's available profit and reinvestment request history.
+ * Client's available profit, the amount they may actually reinvest, and their
+ * reinvestment request history.
  */
 router.get('/reinvest-profit', async (req: AuthenticatedRequest, res: Response) => {
   const userId = req.userId!;
-  const [ledger, txs] = await Promise.all([getLedgerForUser(userId), getTransactionsForUser(userId)]);
+  const [ledger, txs, user] = await Promise.all([
+    getLedgerForUser(userId),
+    getTransactionsForUser(userId),
+    findUserById(userId),
+  ]);
 
   const totalProfit = ledger.filter((e) => e.entryType === 'profit').reduce((s, e) => s + e.amount, 0);
   const totalLoss = ledger.filter((e) => e.entryType === 'loss').reduce((s, e) => s + Math.abs(e.amount), 0);
@@ -552,12 +588,25 @@ router.get('/reinvest-profit', async (req: AuthenticatedRequest, res: Response) 
     .filter((t) => t.type === 'Reinvest' && t.status !== 'Cancelled')
     .sort((a, b) => (a.date < b.date ? 1 : -1));
   const reinvested = reinvestments.reduce((s, t) => s + t.amount, 0);
+  const availableWithdrawal = user?.availableWithdrawal ?? 0;
+  const reserved = pendingReinvestReserved(txs);
+  const withdrawable = uncommittedWithdrawable({ availableWithdrawal, reservedForReinvest: reserved });
 
   res.json({
     totalProfit,
     totalLoss,
     reinvested,
-    availableProfit: Math.max(totalProfit - totalLoss - reinvested, 0),
+    // The client's available withdrawal — the ONE bucket they can withdraw from
+    // AND reinvest from. The deposit section shows this same figure.
+    availableWithdrawal,
+    // Same number, minus anything already committed to a pending request: this is
+    // exactly what the client may reinvest right now.
+    withdrawable,
+    reinvestable: reinvestableAmount({ availableWithdrawal, reservedForReinvest: reserved }),
+    // What is reserved by reinvestment requests still awaiting admin approval.
+    reservedForReinvest: reserved,
+    // Kept for transparency: profit earned vs. profit already moved to capital.
+    availableProfit: computeAvailableProfit({ profit: totalProfit, loss: totalLoss, reinvested }),
     reinvestments: reinvestments.map((t) => ({ id: t.id, date: t.date, amount: t.amount, status: t.status })),
   });
 });
@@ -633,21 +682,24 @@ router.get('/investment', async (req: AuthenticatedRequest, res: Response) => {
     (planName == null ||
       dailyRate == null ||
       durationDays == null ||
+      totalExpectedReturn == null ||
       dailyRate !== fallback.dailyRate ||
-      durationDays !== fallback.durationDays ||
       planName !== fallback.name)
   ) {
     const wasNull = planName == null || dailyRate == null || durationDays == null;
     planName = fallback.name;
     dailyRate = fallback.dailyRate;
-    durationDays = fallback.durationDays;
-    endDate = endDate ?? addWorkingDays(new Date(inv.startDate), fallback.durationDays).toISOString();
-    // Always recompute the expected payout from the served rate/duration so the
-    // displayed "Daily Accrual" and "Expected Total Payout" stay consistent even
-    // when the stored row carries an older plan snapshot (rates may have changed
-    // since the row was written). Previously this only recomputed when it was
-    // NULL, leaving a stale payout displayed next to updated rates.
-    totalExpectedReturn = computeExpectedReturn(inv.initialDeposit, fallback.dailyRate, fallback.durationDays);
+    // The STORED term is authoritative when it exists. A reinvestment keeps the
+    // maturity date the client originally agreed to, so its duration_days is the
+    // investment's real term and may legitimately be shorter than the new tier's
+    // nominal duration — re-deriving it here would promise a longer term than the
+    // accrual engine will pay. Only legacy rows missing a term get one derived.
+    if (durationDays == null) durationDays = fallback.durationDays;
+    endDate = endDate ?? addWorkingDays(new Date(inv.startDate), durationDays).toISOString();
+    // Always recompute the expected payout from the served rate and the STORED
+    // term so the displayed "Daily Accrual" and "Expected Total Payout" stay
+    // consistent with the maturity date (never the new tier's nominal duration).
+    totalExpectedReturn = computeExpectedReturn(inv.initialDeposit, dailyRate, durationDays);
     console.warn(
       `[investment] Investment ${inv.id} (user ${userId}) ${wasNull ? 'has no stored plan snapshot' : `stored ${inv.assignedPlan}/${inv.dailyRate}% which differs from live plan`} — serving current rates (${fallback.name}/${fallback.dailyRate}%). Run \`npm run backfill:investments\` to backfill this row.`,
     );
@@ -754,9 +806,27 @@ router.post('/withdraw', requireKycApproved, async (req: AuthenticatedRequest, r
   // The "available withdrawal" amount is set by an admin (from the client's
   // initial deposit plus any profit credited). A client can only withdraw up
   // to this approved amount — 0 means no withdrawal has been granted yet.
-  if (parsedAmount > user.availableWithdrawal) {
+  //
+  // Reinvestment requests that are still pending are RESERVED against this
+  // balance (nothing is deducted until an admin approves), so the money a
+  // client has already committed to capital cannot be withdrawn as well —
+  // otherwise the same profit could be paid out twice.
+  const pendingReinvest = pendingReinvestReserved(await getTransactionsForUser(user.id));
+  const withdrawable = uncommittedWithdrawable({
+    availableWithdrawal: user.availableWithdrawal ?? 0,
+    reservedForReinvest: pendingReinvest,
+  });
+  if (parsedAmount > withdrawable + 1e-9) {
+    const detail =
+      pendingReinvest > 0
+        ? ` (${pendingReinvest.toLocaleString(undefined, { maximumFractionDigits: 2 })} USD is reserved for pending reinvestment requests)`
+        : '';
     res.status(400).json({
-      error: `Amount exceeds your available withdrawal of ${user.availableWithdrawal.toLocaleString(undefined, { maximumFractionDigits: 2 })} USD. Please contact support if you believe this is incorrect.`,
+      error: `Amount exceeds your available withdrawal of ${withdrawable.toLocaleString(
+        undefined,
+        { maximumFractionDigits: 2 },
+      )} USD${detail}. Please contact support if you believe this is incorrect.`,
+      availableWithdrawal: withdrawable,
     });
     return;
   }

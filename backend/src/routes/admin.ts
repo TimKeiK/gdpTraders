@@ -39,8 +39,10 @@ import {
   INVESTMENT_PLANS,
   addWorkingDays,
   computeExpectedReturn,
+  workingDaysBetween,
   MIN_DEPOSIT,
 } from '../data/plans.js';
+import { investmentTermSummary, storedDateYmd, toYmd } from '../data/accrual.js';
 import { runInvestmentAccrual, getSchedulerStatus } from '../services/accrual.js';
 import { config } from '../config.js';
 
@@ -634,64 +636,129 @@ router.post(
       res.status(400).json({ error: 'Deposit already confirmed' });
       return;
     }
-    if (!amount || amount <= 0) {
+
+    // ---- Validation FIRST, before anything is persisted ----
+    // A reinvestment's amount IS the client's validated request: it may be
+    // omitted (defaults to what was requested) but never changed, and the
+    // withdrawable balance it draws from must still cover it. Validating after
+    // persisting would mark a refused request 'Completed' with a bad amount and
+    // permanently pollute the client's reinvested totals.
+    const isReinvest = tx.type === 'Reinvest';
+    const reinvestAmount = isReinvest ? Number(tx.amount) : 0;
+    if (isReinvest) {
+      if (amount != null && Number(amount) > 0 && Math.abs(Number(amount) - reinvestAmount) > 1e-9) {
+        res.status(400).json({
+          error: `This reinvestment was requested for ${reinvestAmount.toFixed(2)} USD. Approve it as-is or deny it — the amount cannot be changed here.`,
+          requestedAmount: reinvestAmount,
+        });
+        return;
+      }
+    } else if (!amount || amount <= 0) {
       res.status(400).json({ error: 'A positive amount is required to confirm the deposit' });
       return;
     }
 
-    const updated: Transaction = { ...tx, amount, status: 'Completed', strategy: tx.strategy || 'Crypto Deposit' };
+    let availableNote = '';
+    if (isReinvest) {
+      // Deduct from the withdrawable balance: the money is now locked into
+      // investment capital, so it can no longer be withdrawn or reinvested.
+      // The request was capped at this balance, so a shortfall means the balance
+      // moved elsewhere in the meantime (withdrawal approved / admin changed it)
+      // — report it instead of silently forgiving it and letting the books drift.
+      const user = await findUserById(tx.userId);
+      const currentAvailable = Number(user?.availableWithdrawal ?? 0);
+      if (currentAvailable + 1e-9 < reinvestAmount) {
+        res.status(409).json({
+          error:
+            `Cannot approve: only ${currentAvailable.toFixed(2)} USD of the client's available withdrawal is left, ` +
+            `but the reinvestment needs ${reinvestAmount.toFixed(2)} USD. ` +
+            `Deny the request, or reconcile the client's available withdrawal first.`,
+          availableWithdrawal: currentAvailable,
+          requestedAmount: reinvestAmount,
+        });
+        return;
+      }
+    }
+
+    // A reinvestment keeps the amount the client requested; a deposit records the
+    // amount the admin verified on-chain.
+    const creditedAmount = isReinvest ? reinvestAmount : Number(amount);
+    const updated: Transaction = {
+      ...tx,
+      amount: creditedAmount,
+      status: 'Completed',
+      strategy: tx.strategy || 'Crypto Deposit',
+    };
     await addTransaction(updated);
 
-    if (tx.type === 'Reinvest') {
-      // 1) Ledger: Profit → capital: increase the cost basis (deposit entry) and remove
-      // the same amount from P&L (balancing trade entry). Net effect on the
-      // client's total portfolio value is zero — the money just changes bucket.
-      await appendLedgerEntry(tx.userId, tx.asset, amount, 'deposit', tx.id);
-      await appendLedgerEntry(tx.userId, tx.asset, -amount, 'trade', tx.id);
+    if (isReinvest) {
+      // 1) Ledger: capital → capital. Increase the cost basis (deposit entry) and
+      // remove the same amount from the P&L side (balancing trade entry). Net
+      // effect on the client's total portfolio value is zero — the money just
+      // changes bucket. NOTE: these two entries are also excluded from the
+      // client's P&L breakdown (routes/portfolio.ts) so a reinvestment never
+      // shows as a loss.
+      await appendLedgerEntry(tx.userId, tx.asset, reinvestAmount, 'deposit', tx.id);
+      await appendLedgerEntry(tx.userId, tx.asset, -reinvestAmount, 'trade', tx.id);
 
-      // 2) Deduct from available_withdrawal balance (since the profit is now locked into investment capital).
+      // 2) Draw the single spendable bucket down (validated above).
       const user = await findUserById(tx.userId);
-      if (user) {
-        const newAvailable = Math.max(0, Number(((user.availableWithdrawal ?? 0) - amount).toFixed(2)));
-        await setAvailableWithdrawal(tx.userId, newAvailable);
-      }
+      const newAvailable = Number((Number(user?.availableWithdrawal ?? 0) - reinvestAmount).toFixed(2));
+      await setAvailableWithdrawal(tx.userId, newAvailable);
+      availableNote = `Available withdrawal reduced to ${newAvailable.toFixed(2)}.`;
 
-      // 3) Update the client's active investment: add the reinvested amount to initialDeposit
-      // and re-derive plan tier (unless manually overridden).
+      // 3) Update the client's active investment. The deposit grows (which
+      // raises the daily accrual and can move the client up a plan tier), but
+      // the TERM does not change: the plan still matures on the end_date the
+      // client originally agreed to. durationDays and totalExpectedReturn are
+      // recomputed from that real term so the dashboard can never promise a
+      // longer term or a bigger payout than the engine will actually pay.
       const activeInv = await getActiveInvestmentForUser(tx.userId);
       let planNote = '';
       if (activeInv) {
-        const newPrincipal = Number((activeInv.initialDeposit + amount).toFixed(2));
+        const newPrincipal = Number((activeInv.initialDeposit + reinvestAmount).toFixed(2));
         const override = activeInv.planOverride === true;
         const newPlan = override ? null : getPlanByAmount(newPrincipal);
         const rate = override ? (activeInv.dailyRate ?? 0) : (newPlan?.dailyRate ?? activeInv.dailyRate ?? 0);
-        const duration = override ? (activeInv.durationDays ?? 100) : (newPlan?.durationDays ?? activeInv.durationDays ?? 100);
         const planName = override ? activeInv.assignedPlan : (newPlan?.name ?? activeInv.assignedPlan);
+
+        const term = investmentTermSummary({
+          startYmd: storedDateYmd(activeInv.startDate),
+          endYmd: storedDateYmd(activeInv.endDate as string),
+          todayYmd: toYmd(new Date()),
+          deposit: newPrincipal,
+          dailyRatePercent: rate,
+          alreadyCreditedProfit: activeInv.accruedProfit ?? 0,
+        });
 
         const updatedInv: Investment = {
           ...activeInv,
           initialDeposit: newPrincipal,
           assignedPlan: planName,
           dailyRate: rate,
-          durationDays: duration,
-          totalExpectedReturn: computeExpectedReturn(newPrincipal, rate, duration),
-          currentValue: Number(((activeInv.currentValue ?? activeInv.initialDeposit) + amount).toFixed(2)),
+          // Real term of THIS investment — never the new tier's nominal duration.
+          durationDays: term.termDays,
+          totalExpectedReturn: term.expectedTotalReturn,
+          currentValue: Number(((activeInv.currentValue ?? activeInv.initialDeposit) + reinvestAmount).toFixed(2)),
         };
         await updateInvestment(updatedInv);
-        planNote = ` Active plan updated to ${planName} ($${newPrincipal} initial capital, ${rate}% daily).`;
-      } else if (getPlanByAmount(amount)) {
-        const newInv = await recordInvestmentForDeposit(tx.userId, amount);
-        planNote = ` Created active plan ${newInv.assignedPlan} ($${amount} initial capital).`;
+        planNote =
+          ` Active plan updated to ${planName} ($${newPrincipal} initial capital, ${rate}% daily). ` +
+          `Maturity date unchanged (${storedDateYmd(activeInv.endDate as string)}): ` +
+          `${term.remainingDays} working day(s) remain, expected total payout $${term.expectedTotalReturn.toLocaleString()}.`;
+      } else if (getPlanByAmount(reinvestAmount)) {
+        const newInv = await recordInvestmentForDeposit(tx.userId, reinvestAmount);
+        planNote = ` Created active plan ${newInv.assignedPlan} ($${reinvestAmount} initial capital).`;
       }
 
       await addAuditLog(
         tx.userId,
         'REINVEST_CONFIRMED',
-        `Reinvestment ${tx.id} approved: ${amount} ${tx.asset} moved from profit to initial capital by ${req.user!.email}.${planNote}`
+        `Reinvestment ${tx.id} approved: ${reinvestAmount} ${tx.asset} moved from profit to initial capital by ${req.user!.email}. ${availableNote}${planNote}`
       );
       res.json({
         transaction: updated,
-        message: `Reinvestment ${tx.id} approved. ${amount} ${tx.asset} of profit added to initial capital and deducted from available withdrawal.${planNote}`,
+        message: `Reinvestment ${tx.id} approved. ${reinvestAmount} ${tx.asset} of profit added to initial capital and deducted from available withdrawal.${planNote}`,
       });
       return;
     }
@@ -699,7 +766,7 @@ router.post(
     // Atomically credit the deposit and (when the depositor was referred) pay
     // the referrer a 5% commission + referral_earnings audit row — both ledger
     // writes and the earnings row commit or roll back together in one transaction.
-    const confirmation = await appendDepositAndReferralCommission(tx.userId, tx.asset, amount, tx.id);
+    const confirmation = await appendDepositAndReferralCommission(tx.userId, tx.asset, creditedAmount, tx.id);
     let commissionNote = '';
     for (const c of confirmation.commissions) {
       const referrer = await findUserById(c.earning.referrerUserId);
@@ -715,16 +782,16 @@ router.post(
     // the $20 minimum have no plan — the deposit is still credited, but no
     // investment record is created and the admin is told why).
     let investmentNote = '';
-    if (tx.type === 'Deposit' && getPlanByAmount(amount)) {
-      const investment = await recordInvestmentForDeposit(tx.userId, amount);
+    if (tx.type === 'Deposit' && getPlanByAmount(creditedAmount)) {
+      const investment = await recordInvestmentForDeposit(tx.userId, creditedAmount);
       investmentNote = ` Assigned plan: ${investment.assignedPlan}.`;
     } else if (tx.type === 'Deposit') {
       investmentNote = ` Note: below the $${MIN_DEPOSIT} minimum, so no investment plan was assigned.`;
     }
 
-    await addAuditLog(tx.userId, 'DEPOSIT_CONFIRMED', `Deposit ${tx.id} confirmed for ${amount} ${tx.asset} by ${req.user!.email}.${investmentNote}${commissionNote}`);
+    await addAuditLog(tx.userId, 'DEPOSIT_CONFIRMED', `Deposit ${tx.id} confirmed for ${creditedAmount} ${tx.asset} by ${req.user!.email}.${investmentNote}${commissionNote}`);
 
-    res.json({ transaction: updated, message: `Deposit ${tx.id} confirmed and credited with ${amount} ${tx.asset}.${investmentNote}${commissionNote}` });
+    res.json({ transaction: updated, message: `Deposit ${tx.id} confirmed and credited with ${creditedAmount} ${tx.asset}.${investmentNote}${commissionNote}` });
   }
 );
 

@@ -100,11 +100,22 @@ export function computeDailyAccruals(params: {
   principal: number;
   dailyRatePercent: number;
   dates: string[];
+  /**
+   * Running balance to continue FROM (initial deposit + profit already
+   * credited). Defaults to `principal` (a fresh plan).
+   *
+   * The daily amount is ALWAYS derived from `principal` — this parameter only
+   * keeps the persisted `balance_after` / `current_value` running total correct
+   * after a mid-term capital change (e.g. a profit reinvestment raises the
+   * deposit). Without it the next run would reset the running total to
+   * deposit + this run's days, erasing every day credited before the change.
+   */
+  startingBalance?: number;
 }): AccrualStep[] {
-  const { principal, dailyRatePercent, dates } = params;
+  const { principal, dailyRatePercent, dates, startingBalance } = params;
   const rate = dailyRatePercent / 100;
   const dailyAmount = round2(principal * rate);
-  let balance = principal;
+  let balance = round2(startingBalance ?? principal);
   return dates.map((date) => {
     balance = round2(balance + dailyAmount);
     return { date, amount: dailyAmount, balanceAfter: balance };
@@ -244,4 +255,82 @@ export function maturedBeforeCutover(params: {
   if (!endYmd) return false;
   if (status !== 'active') return false;
   return endYmd < cutoverYmd;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Term economics (used when capital changes mid-term, e.g. a reinvestment)    */
+/* -------------------------------------------------------------------------- */
+
+export interface InvestmentTermSummary {
+  /** Total business days the plan actually accrues: (start_date, end_date]. */
+  termDays: number;
+  /** Business days still to be credited, the maturity day included. */
+  remainingDays: number;
+  /**
+   * Expected total payout at maturity:
+   *   profit already credited + deposit + profit still to be credited.
+   */
+  expectedTotalReturn: number;
+}
+
+/** Business days in [fromInclusive, toInclusive] (empty when the range is inverted). */
+function countBusinessDays(fromInclusive: string, toInclusive: string, holidays: Set<string>): number {
+  if (fromInclusive > toInclusive) return 0;
+  const exclusiveEnd = toYmd(new Date(parseYmd(toInclusive).getTime() + 86400000));
+  return enumerateBusinessDates(fromInclusive, exclusiveEnd).filter((d) =>
+    isBusinessDay(parseYmd(d), holidays),
+  ).length;
+}
+
+/**
+ * Term economics for an investment whose capital changed mid-term.
+ *
+ * A reinvestment raises the deposit (which raises the daily accrual and can move
+ * the client up a plan tier) but does NOT extend the term — the plan still
+ * matures on the `end_date` the client originally agreed to. Because the daily
+ * amount is always derived from the CURRENT deposit and the CURRENT plan rate,
+ * the only honest "expected total payout" is:
+ *
+ *   profit already credited
+ *   + deposit
+ *   + deposit × dailyRate% × remaining business days (maturity day included)
+ *
+ * `termDays` likewise reports the REAL term (business days in
+ * (start_date, end_date]) rather than the new tier's nominal duration, so the
+ * displayed term, the maturity date and the expected payout always agree.
+ */
+export function investmentTermSummary(params: {
+  startYmd: string;
+  endYmd: string;
+  todayYmd: string;
+  deposit: number;
+  dailyRatePercent: number;
+  /** Profit the plan has already paid out (automated accruals). */
+  alreadyCreditedProfit?: number;
+  holidays?: Set<string>;
+}): InvestmentTermSummary {
+  const {
+    startYmd,
+    endYmd,
+    todayYmd,
+    deposit,
+    dailyRatePercent,
+    alreadyCreditedProfit = 0,
+    holidays = DEFAULT_HOLIDAYS,
+  } = params;
+
+  const dayAfterStart = toYmd(new Date(parseYmd(startYmd).getTime() + 86400000));
+  const termDays = countBusinessDays(dayAfterStart, endYmd, holidays);
+  // The first business day the deposit earns is start_date + 1, so a reinvest
+  // on the deposit day itself still has the full term ahead of it.
+  const remainingFrom = todayYmd > dayAfterStart ? todayYmd : dayAfterStart;
+  const remainingDays = countBusinessDays(remainingFrom, endYmd, holidays);
+
+  const dailyAmount = round2(deposit * (dailyRatePercent / 100));
+  const futureProfit = round2(dailyAmount * remainingDays);
+  return {
+    termDays,
+    remainingDays,
+    expectedTotalReturn: round2(alreadyCreditedProfit + deposit + futureProfit),
+  };
 }
