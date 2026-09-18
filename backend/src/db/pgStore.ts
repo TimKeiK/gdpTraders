@@ -518,6 +518,17 @@ export async function appendDepositAndReferralCommission(
       const commissionAmount = computeReferralCommission(amount);
       if (commissionAmount > 0) {
         const entry = await appendLedgerEntryOnClient(client, referredBy, asset, commissionAmount, 'referral_commission', referenceId);
+        // Also credit the 5% commission directly to the referrer's available
+        // withdrawal balance, so it is withdrawable immediately (not just ledger).
+        const avRow = await client.query(
+            'SELECT COALESCE(CAST(available_withdrawal AS VARCHAR), \'0\') AS av FROM users WHERE id = $1',
+            [referredBy]
+        );
+        const currentAvailable = Math.round((Number(avRow.rows[0].av) + commissionAmount) * 100) / 100;
+        await client.query(
+            'UPDATE users SET available_withdrawal = $1 WHERE id = $2',
+            [currentAvailable, referredBy]
+        );
         await client.query(
           `INSERT INTO referral_earnings (referrer_user_id, referred_user_id, source_transaction_id, asset, amount)
            VALUES ($1,$2,$3,$4,$5)`,

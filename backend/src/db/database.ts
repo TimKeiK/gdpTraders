@@ -503,6 +503,10 @@ export function appendDepositAndReferralCommission(
     const cAmount = computeReferralCommission(amount);
     if (cAmount > 0) {
       const entry = appendLedgerEntry(referredBy, asset, cAmount, 'referral_commission', referenceId);
+      // Also credit the 5% commission directly to the referrer's available
+      // withdrawal balance, so it is withdrawable immediately (not just ledger).
+      const currentAvailable = store.users.get(referredBy)?.availableWithdrawal ?? 0;
+      setAvailableWithdrawal(referredBy, currentAvailable + cAmount);
       const earning: ReferralEarning = {
         id: `ref_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
         referrerUserId: referredBy,
