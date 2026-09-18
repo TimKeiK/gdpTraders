@@ -16,7 +16,7 @@ import {
   ChevronDown,
   X,
 } from 'lucide-react';
-import { adminApi, formatCurrency, type AdminUser } from '../../api/client';
+import { adminApi, formatCurrency, formatAmount, type AdminUser } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import { INVESTMENT_PLANS } from '../../data/plans';
 import './admin.css';
@@ -182,7 +182,7 @@ export default function AdminAccounts() {
     setDebErr('');
     try {
       await adminApi.manualDebit(debitFor.id, debAsset, amount, debNote || undefined);
-      setMsg(`Debited ${amount} ${debAsset} from ${debitFor.email} (recorded as loss)`);
+      setMsg(`Debited $${formatAmount(amount)} ${debAsset} from ${debitFor.email} (recorded as loss)`);
       setDebitFor(null);
       load();
     } catch (e) {
@@ -203,7 +203,7 @@ export default function AdminAccounts() {
     setDepErr('');
     try {
       await adminApi.manualDeposit(depositFor.id, depAsset, amount, depNote || undefined);
-      setMsg(`Credited ${amount} ${depAsset} to ${depositFor.email}`);
+      setMsg(`Credited $${formatAmount(amount)} ${depAsset} to ${depositFor.email}`);
       setDepositFor(null);
       load();
     } catch (e) {

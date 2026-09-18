@@ -43,6 +43,7 @@ import {
   MIN_DEPOSIT,
 } from '../data/plans.js';
 import { investmentTermSummary, storedDateYmd, toYmd } from '../data/accrual.js';
+import { money2 } from '../lib/reinvest.js';
 import { runInvestmentAccrual, getSchedulerStatus } from '../services/accrual.js';
 import { config } from '../config.js';
 
@@ -144,6 +145,14 @@ router.get(
       .reduce((s, t) => s + t.amount, 0);
     const pendingWithdrawals = withdrawals.filter((t) => t.status === 'Pending');
     const processingDeposits = txns.filter((t) => t.type === 'Deposit' && t.status === 'Processing');
+    // Items that need an explicit admin/compliance decision beyond the
+    // multi-sig withdrawal queue: processing deposits + pending reinvestments.
+    // Tier-1 "Pending Approvals" card links to the filtered Transactions view.
+    const pendingApprovals = txns.filter(
+      (t) =>
+        (t.type === 'Deposit' && t.status === 'Processing') ||
+        (t.type === 'Reinvest' && (t.status === 'Processing' || t.status === 'Pending')),
+    );
 
     // Platform-wide Profit & Loss managed by admins (§4.4 ledger entry types).
     const totalProfit = ledger.filter((e) => e.entryType === 'profit').reduce((s, e) => s + e.amount, 0);
@@ -164,6 +173,8 @@ router.get(
         fees,
         pendingWithdrawals: pendingWithdrawals.length,
         pendingWithdrawalAmount: pendingWithdrawals.reduce((s, w) => s + w.amount, 0),
+        pendingApprovals: pendingApprovals.length,
+        pendingApprovalAmount: pendingApprovals.reduce((s, t) => s + (t.amount ?? 0), 0),
         processingDeposits: processingDeposits.length,
         transactionCount: txns.length,
         ledgerEntries: ledger.length,
@@ -304,7 +315,7 @@ router.post(
     await addAuditLog(
       id,
       'WITHDRAWAL_AMOUNT_SET',
-      `Available withdrawal set to ${parsed} by ${req.user!.email}`
+      `Available withdrawal set to ${money2(parsed)} by ${req.user!.email}`
     );
     res.json({ userId: id, availableWithdrawal: parsed });
   }
@@ -482,7 +493,7 @@ router.post(
     await addAuditLog(
       id,
       'INVESTMENT_DEPOSIT_SET',
-      `Initial deposit overridden to ${parsed} (plan: ${inv.assignedPlan}) by ${req.user!.email}`
+      `Initial deposit overridden to ${money2(parsed)} (plan: ${inv.assignedPlan}) by ${req.user!.email}`
     );
 
     res.json({
@@ -494,7 +505,7 @@ router.post(
         durationDays: inv.durationDays,
         totalExpectedReturn: inv.totalExpectedReturn,
       },
-      message: `Initial deposit for ${user.email} set to ${parsed} (${inv.assignedPlan} Plan).`,
+      message: `Initial deposit for ${user.email} set to ${money2(parsed)} (${inv.assignedPlan} Plan).`,
     });
   }
 );
@@ -543,9 +554,9 @@ router.post(
     // raises the amount the client can withdraw by the same amount, so the
     // client's dashboard Total Profit and Available Withdrawal match.
     await setAvailableWithdrawal(id, (user.availableWithdrawal ?? 0) + amount);
-    await addAuditLog(id, 'ADMIN_CREDIT_PROFIT', `Admin credited ${amount} ${asset} as PROFIT (${txId}) by ${req.user!.email}. Available withdrawal increased to ${(user.availableWithdrawal ?? 0) + amount}.`);
+    await addAuditLog(id, 'ADMIN_CREDIT_PROFIT', `Admin credited ${money2(amount)} ${asset} as PROFIT (${txId}) by ${req.user!.email}. Available withdrawal increased to ${money2((user.availableWithdrawal ?? 0) + amount)}.`);
 
-    res.status(201).json({ transaction: tx, availableWithdrawal: (user.availableWithdrawal ?? 0) + amount, message: `Credited ${amount} ${asset} to ${user.email} (recorded as profit). Available withdrawal is now ${(user.availableWithdrawal ?? 0) + amount}.` });
+    res.status(201).json({ transaction: tx, availableWithdrawal: (user.availableWithdrawal ?? 0) + amount, message: `Credited ${money2(amount)} ${asset} to ${user.email} (recorded as profit). Available withdrawal is now ${money2((user.availableWithdrawal ?? 0) + amount)}.` });
   }
 );
 
@@ -604,9 +615,9 @@ router.post(
     // amount the client can withdraw (never below 0).
     const newAvailable = Math.max((user.availableWithdrawal ?? 0) - amount, 0);
     await setAvailableWithdrawal(id, newAvailable);
-    await addAuditLog(id, 'ADMIN_DEBIT_LOSS', `Admin debited ${amount} ${asset} as LOSS (${txId}) by ${req.user!.email}. Available withdrawal reduced to ${newAvailable}.`);
+    await addAuditLog(id, 'ADMIN_DEBIT_LOSS', `Admin debited ${money2(amount)} ${asset} as LOSS (${txId}) by ${req.user!.email}. Available withdrawal reduced to ${money2(newAvailable)}.`);
 
-    res.status(201).json({ transaction: tx, availableWithdrawal: newAvailable, message: `Debited ${amount} ${asset} from ${user.email} (recorded as loss). Available withdrawal is now ${newAvailable}.` });
+    res.status(201).json({ transaction: tx, availableWithdrawal: newAvailable, message: `Debited ${money2(amount)} ${asset} from ${user.email} (recorded as loss). Available withdrawal is now ${money2(newAvailable)}.` });
   }
 );
 
@@ -754,11 +765,11 @@ router.post(
       await addAuditLog(
         tx.userId,
         'REINVEST_CONFIRMED',
-        `Reinvestment ${tx.id} approved: ${reinvestAmount} ${tx.asset} moved from profit to initial capital by ${req.user!.email}. ${availableNote}${planNote}`
+        `Reinvestment ${tx.id} approved: ${money2(reinvestAmount)} ${tx.asset} moved from profit to initial capital by ${req.user!.email}. ${availableNote}${planNote}`
       );
       res.json({
         transaction: updated,
-        message: `Reinvestment ${tx.id} approved. ${reinvestAmount} ${tx.asset} of profit added to initial capital and deducted from available withdrawal.${planNote}`,
+        message: `Reinvestment ${tx.id} approved. ${money2(reinvestAmount)} ${tx.asset} of profit added to initial capital and deducted from available withdrawal.${planNote}`,
       });
       return;
     }
@@ -770,11 +781,11 @@ router.post(
     let commissionNote = '';
     for (const c of confirmation.commissions) {
       const referrer = await findUserById(c.earning.referrerUserId);
-      commissionNote += ` Referral commission of ${c.amount} ${tx.asset} credited to ${referrer?.email ?? c.earning.referrerUserId}.`;
+      commissionNote += ` Referral commission of ${money2(c.amount)} ${tx.asset} credited to ${referrer?.email ?? c.earning.referrerUserId}.`;
       await addAuditLog(
         c.earning.referrerUserId,
         'REFERRAL_COMMISSION',
-        `5% referral commission of ${c.amount} ${tx.asset} earned from deposit ${tx.id} by ${tx.userId} (confirmed by ${req.user!.email})`
+        `5% referral commission of ${money2(c.amount)} ${tx.asset} earned from deposit ${tx.id} by ${tx.userId} (confirmed by ${req.user!.email})`
       );
     }
 
@@ -789,9 +800,9 @@ router.post(
       investmentNote = ` Note: below the $${MIN_DEPOSIT} minimum, so no investment plan was assigned.`;
     }
 
-    await addAuditLog(tx.userId, 'DEPOSIT_CONFIRMED', `Deposit ${tx.id} confirmed for ${creditedAmount} ${tx.asset} by ${req.user!.email}.${investmentNote}${commissionNote}`);
+    await addAuditLog(tx.userId, 'DEPOSIT_CONFIRMED', `Deposit ${tx.id} confirmed for ${money2(creditedAmount)} ${tx.asset} by ${req.user!.email}.${investmentNote}${commissionNote}`);
 
-    res.json({ transaction: updated, message: `Deposit ${tx.id} confirmed and credited with ${creditedAmount} ${tx.asset}.${investmentNote}${commissionNote}` });
+    res.json({ transaction: updated, message: `Deposit ${tx.id} confirmed and credited with ${money2(creditedAmount)} ${tx.asset}.${investmentNote}${commissionNote}` });
   }
 );
 

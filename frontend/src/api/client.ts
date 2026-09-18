@@ -426,6 +426,10 @@ export interface AdminDashboard {
     fees: number;
     pendingWithdrawals: number;
     pendingWithdrawalAmount: number;
+    /** Deposits + reinvestments awaiting an explicit admin/compliance decision. */
+    pendingApprovals: number;
+    /** Combined USD value of the items counted in pendingApprovals. */
+    pendingApprovalAmount: number;
     processingDeposits: number;
     transactionCount: number;
     ledgerEntries: number;
@@ -588,6 +592,34 @@ export function formatCurrency(value: number, compact = false): string {
     maximumFractionDigits: compact ? 0 : 2,
     notation: compact ? 'compact' : 'standard',
   }).format(value);
+}
+
+/**
+ * Money for humans: always 2 decimals via Intl.NumberFormat — the single
+ * render-side choke point for interpolating a raw number into UI copy
+ * (e.g. 27.619999999999999 → "27.62").
+ */
+export function formatAmount(value: number): string {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return '0.00';
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(v);
+}
+
+/**
+ * Render-side safety net for free-text audit-log details (which embed raw
+ * amounts server-side, e.g. "Available withdrawal increased to
+ * 27.619999999999999"): rounds every standalone decimal run to 2 decimals
+ * at the point of render. Integers are left untouched.
+ */
+export function roundNumbersInText(text: string): string {
+  return text.replace(/-?\d+\.\d+/g, (m) => {
+    const v = Number(m);
+    if (!Number.isFinite(v)) return m;
+    return v.toFixed(2);
+  });
 }
 
 export function formatPercent(value: number | null | undefined): string {

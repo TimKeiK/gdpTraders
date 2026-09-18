@@ -496,6 +496,89 @@ th.admin-col-actions {
   opacity: 1;
 }
 
+/* ------------------------------------------------------------------
+   Dashboard metric tiers.
+   Tier 1 (admin-kpis-action): "needs you" — accented left border + subtle
+   warm tint, clickable straight through to the filtered queue that owns
+   the decision. Tier 2 (admin-kpis-info / .muted): quiet informational
+   stats with no action accent.
+   ------------------------------------------------------------------ */
+
+.admin-tier-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--gray-400);
+  margin: 4px 0 14px;
+}
+
+.admin-kpis-action {
+  grid-template-columns: repeat(3, 1fr);
+  margin-bottom: 30px;
+}
+
+.admin-kpi-action {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  border-left: 3px solid var(--kpi-accent, var(--red));
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.admin-kpi-action:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  border-color: var(--glass-border);
+  border-left-color: var(--kpi-accent, var(--red));
+}
+
+.admin-kpi-action.red {
+  background: linear-gradient(0deg, rgba(239, 68, 68, 0.10), rgba(239, 68, 68, 0.10)), var(--glass-bg);
+}
+
+.admin-kpi-action.amber {
+  background: linear-gradient(0deg, rgba(245, 158, 11, 0.10), rgba(245, 158, 11, 0.10)), var(--glass-bg);
+}
+
+.admin-kpi-action.purple {
+  background: linear-gradient(0deg, rgba(139, 92, 246, 0.10), rgba(139, 92, 246, 0.10)), var(--glass-bg);
+}
+
+.admin-kpi-go {
+  vertical-align: text-bottom;
+  margin-left: 2px;
+}
+
+.admin-kpi-action:hover .admin-kpi-go {
+  color: var(--white);
+}
+
+.admin-kpis-info {
+  margin-bottom: 26px;
+}
+
+.admin-kpi.muted {
+  opacity: 0.92;
+}
+
+.admin-kpi.muted::before {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.admin-kpi.muted .admin-kpi-value {
+  font-size: 23px;
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .admin-kpis-action { grid-template-columns: 1fr; }
+}
+
 @media (max-width: 1100px) {
   .admin-detail-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
@@ -503,4 +586,5 @@ th.admin-col-actions {
 @media (max-width: 640px) {
   .admin-detail-grid { grid-template-columns: 1fr; }
 }
+
 

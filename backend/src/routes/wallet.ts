@@ -22,6 +22,7 @@ import { addInvestment, getActiveInvestmentForUser, type Investment } from '../d
 import {
   availableProfit as computeAvailableProfit,
   committedReinvestTotal,
+  money2,
   pendingReinvestReserved,
   reinvestableAmount,
   round2 as roundMoney,
@@ -397,7 +398,7 @@ router.post('/deposit-confirm', requireKycApproved, async (req: AuthenticatedReq
     await addAuditLog(
       userId,
       'DEPOSIT',
-      `Card deposit confirmed: ${amount} USD as ${asset}${deposit ? ` (${deposit.network})` : ''} delivered to custodial wallet ${depositAddress} (${paymentIntentId})`
+      `Card deposit confirmed: ${money2(amount)} USD as ${asset}${deposit ? ` (${deposit.network})` : ''} delivered to custodial wallet ${depositAddress} (${paymentIntentId})`
     );
 
     res.status(201).json({
@@ -468,7 +469,7 @@ router.post('/crypto-deposit', requireKycApproved, async (req: AuthenticatedRequ
   await addAuditLog(
     userId,
     'DEPOSIT_SUBMITTED',
-    `User reported sending ${parsedAmount} ${asset} on ${deposit.network} to custodial wallet ${deposit.address} (${txId})`
+    `User reported sending ${money2(parsedAmount)} ${asset} on ${deposit.network} to custodial wallet ${deposit.address} (${txId})`
   );
 
   res.status(201).json({
@@ -555,8 +556,8 @@ router.post('/reinvest-profit', requireKycApproved, async (req: AuthenticatedReq
   await addAuditLog(
     user.id,
     'REINVEST_REQUESTED',
-    `Client requested to reinvest ${parsedAmount} USD into capital (${txId}). ` +
-      `Reserved against available withdrawal ${availableWithdrawal} (reinvestable ${reinvestable}, un-reinvested profit ${unReinvestedProfit}).`,
+    `Client requested to reinvest ${money2(parsedAmount)} USD into capital (${txId}). ` +
+      `Reserved against available withdrawal ${money2(availableWithdrawal)} (reinvestable ${money2(reinvestable)}, un-reinvested profit ${money2(unReinvestedProfit)}).`,
   );
 
   res.status(201).json({
@@ -860,7 +861,7 @@ router.post('/withdraw', requireKycApproved, async (req: AuthenticatedRequest, r
   };
   await addWithdrawalRequest(tx);
   await addTransaction(tx);
-  await addAuditLog(user.id, 'WITHDRAWAL_REQUESTED', `${asset} (${net.network}) ${parsedAmount} withdrawal to ${address}`);
+  await addAuditLog(user.id, 'WITHDRAWAL_REQUESTED', `${asset} (${net.network}) ${money2(parsedAmount)} withdrawal to ${address} (${txId})`);
 
   res.status(201).json({
     transaction: tx,
@@ -925,7 +926,7 @@ router.post(
       if (wUser) {
         await setAvailableWithdrawal(tx.userId, Math.max((wUser.availableWithdrawal ?? 0) - tx.amount, 0));
       }
-      await addAuditLog(tx.userId, 'WITHDRAWAL_EXECUTED', `${tx.asset} ${tx.amount} withdrawal executed`);
+      await addAuditLog(tx.userId, 'WITHDRAWAL_EXECUTED', `${tx.asset} ${money2(tx.amount)} withdrawal executed`);
       await updateWithdrawalRequest(tx.id, { status: 'Completed' });
       await addTransaction(tx); // keep the transactions-table copy in sync (pgStore has separate tables)
       res.json({ transaction: tx, message: 'Withdrawal approved by both parties and executed.' });

@@ -128,3 +128,14 @@ export function isReinvestMove(entry: LedgerEntryLike, reinvestIds: Set<string>)
 export function round2(value: number): number {
   return Number(value.toFixed(2));
 }
+
+/**
+ * Money for humans: 2 decimals without float-representation noise, safe for
+ * interpolating into audit-log details and admin messages
+ * (e.g. 27.619999999999999 → "27.62").
+ */
+export function money2(value: number): string {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return '0.00';
+  return (Math.round(v * 100) / 100).toFixed(2);
+}

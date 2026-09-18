@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Receipt,
   Search,
@@ -6,6 +7,7 @@ import {
   XCircle,
   AlertCircle,
   Clock,
+  X,
 } from 'lucide-react';
 import { adminApi, formatCurrency, type AdminTransaction } from '../../api/client';
 import './admin.css';
@@ -27,10 +29,14 @@ const TYPE_PILL: Record<string, string> = {
 };
 
 export default function AdminTransactions() {
+  const [searchParams] = useSearchParams();
   const [txns, setTxns] = useState<AdminTransaction[]>([]);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(searchParams.get('q') ?? '');
+  // Deep link: /admin/transactions?status=Processing from the dashboard
+  // "Pending Approvals" card and the urgent notification items.
+  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? '');
   const [busyId, setBusyId] = useState('');
   const [confirmFor, setConfirmFor] = useState<AdminTransaction | null>(null);
   const [confirmAmount, setConfirmAmount] = useState('');
@@ -50,16 +56,18 @@ export default function AdminTransactions() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return txns;
-    return txns.filter(
-      (t) =>
+    return txns.filter((t) => {
+      if (statusFilter && t.status !== statusFilter) return false;
+      if (!q) return true;
+      return (
         t.id.toLowerCase().includes(q) ||
         t.type.toLowerCase().includes(q) ||
         t.status.toLowerCase().includes(q) ||
         t.asset.toLowerCase().includes(q) ||
-        t.userEmail.toLowerCase().includes(q),
-    );
-  }, [txns, query]);
+        t.userEmail.toLowerCase().includes(q)
+      );
+    });
+  }, [txns, query, statusFilter]);
 
   const confirmDeposit = async () => {
     if (!confirmFor) return;
@@ -114,17 +122,38 @@ export default function AdminTransactions() {
       <div className="admin-toolbar">
         <div className="admin-search">
           <Search size={16} style={{ color: 'var(--gray-400)' }} />
-          <input placeholder="Search ID, type, status, asset, client…" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input placeholder="Search ID, type, status, asset, client" aria-label="Search transactions" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
-        <div style={{ fontSize: 13, color: 'var(--gray-400)' }}>
-          <Receipt size={14} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />
-          {filtered.length} shown
-          {processingCount > 0 && (
-            <span style={{ color: 'var(--purple)', marginLeft: 10 }}>
-              <Clock size={13} style={{ verticalAlign: 'text-bottom', marginRight: 4 }} />
-              {processingCount} awaiting confirmation
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {statusFilter && (
+            <span className="admin-filter-chip">
+              Status: {statusFilter}
+              <button onClick={() => setStatusFilter('')} title="Clear status filter" aria-label="Clear status filter">
+                <X size={13} />
+              </button>
             </span>
           )}
+          <select
+            className="admin-select"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            title="Filter by status"
+          >
+            <option value="">All statuses</option>
+            {['Processing', 'Pending', 'Completed', 'Cancelled'].map((st) => (
+              <option key={st} value={st}>{st}</option>
+            ))}
+          </select>
+          <div style={{ fontSize: 13, color: 'var(--gray-400)' }}>
+            <Receipt size={14} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />
+            {filtered.length} shown
+            {processingCount > 0 && (
+              <span style={{ color: 'var(--purple)', marginLeft: 10 }}>
+                <Clock size={13} style={{ verticalAlign: 'text-bottom', marginRight: 4 }} />
+                {processingCount} awaiting confirmation
+              </span>
+            )}
+          </div>
         </div>
       </div>
       <div className="admin-card">
